@@ -1,0 +1,231 @@
+module Prelude
+
+Eq : Pi (a : Type), a -> a -> Prop
+Eq a x y = Pi p : a -> Prop, p x -> p y
+
+Refl : Pi (a : Type)(x : a), Eq a x x
+Refl a x p px = px
+
+id : Pi (a : Type), a -> a
+id a x = x
+
+data Void : Type where
+
+void : Pi a : Type, Void => a
+void a ()
+
+data Unit : Type where
+  tt : Unit
+
+data Bool : Type where
+  true  : Bool
+  false : Bool
+
+data Ord : Type where
+  lt : Ord
+  eq : Ord
+  gt : Ord
+
+data Nat : Type where
+  zero : Nat
+  succ : Nat -o Nat
+
+data Either (a b : Type) : Type where
+  left  : a -> Either a b
+  right : b -> Either a b
+
+data Pair (a b : Type) : Type where
+  mk : a -o b -o Pair a b
+
+data List(a : Type) : Type where
+  nil  : List a
+  cons : a -o List a -o List a
+
+data Acc (a : Type)(r : a -> a -> Type)(x : a) : Type where
+  intro : (Pi (0 y : a), r y x => Acc a r y) -> Acc a r x
+
+and : Bool -> Bool -> Bool
+and true x = x
+and false x = false
+
+or : Bool -> Bool -> Bool
+or true x = true
+or false x = x
+
+not : Bool -> Bool
+not true = false
+not false = true
+
+bool_eq : Bool -> Bool -> Bool
+bool_eq true  x = x
+bool_eq false x = not x
+
+b2t : Bool -> Type
+b2t true = Unit
+b2t false = Void
+
+simpl : b2t true
+simpl = tt
+
+bool_refl : Pi b : Bool, b2t (bool_eq b b)
+bool_refl true = tt
+bool_refl false = tt
+
+is_eq : Ord -> Bool
+is_eq eq = true
+is_eq lt = false
+is_eq gt = false
+
+is_lt : Ord -> Bool
+is_lt lt = true
+is_lt gt = false
+is_lt eq = false
+
+nat_compare : Nat -> Nat -> Ord
+nat_compare zero zero = eq
+nat_compare zero (succ _) = lt
+nat_compare (succ _) zero = gt
+nat_compare (succ n) (succ m) = nat_compare n m
+
+nat_rec : Pi (n : Nat)(P : Nat -> Type), P zero -> (Pi m : Nat, P m -> P (succ m)) -> P n
+nat_rec zero p pz ps = pz
+nat_rec (succ n) p pz ps = ps n (nat_rec n p pz ps)
+
+nat_eq : Nat -> Nat -> Bool
+nat_eq n m = is_eq (nat_compare n m)
+
+nat_Eq : Nat -> Nat -> Type
+nat_Eq n m = b2t (nat_eq n m)
+
+nat_refl : Pi (n : Nat), nat_Eq n n
+nat_refl zero = tt
+nat_refl (succ n) = nat_refl n
+
+nat_J : Pi (n m : Nat)(P : Pi k : Nat, nat_Eq n k -> Type)(prefl : P n (nat_refl n))(0 e : nat_Eq n m), P m e
+nat_J zero zero P prefl tt = prefl
+nat_J zero (succ _) P prefl ()
+nat_J (succ _) zero P prefl ()
+nat_J (succ n) (succ m) P prefl eq = nat_J n m (\k, P (succ k)) prefl eq
+
+nat_K : Pi (n : Nat)(P : nat_Eq n n -> Type)(prefl : P (nat_refl n))(0 e : nat_Eq n n), P e
+nat_K zero P prefl tt = prefl
+nat_K (succ n) P prefl eq = nat_K n P prefl eq
+
+nat_subst : Pi (n m : Nat)(P : Nat -> Type), nat_Eq n m ->  P n -> P m
+nat_subst n m p e px = nat_J n m (\k e, p k) px e
+
+even : Nat -> Bool
+even zero = true
+even (succ n) = not (even n)
+
+odd : Nat -> Bool
+odd n = not (even n)
+
+plus : Nat -> Nat -> Nat
+plus zero m = m
+plus (succ n) m = succ (plus n m)
+
+plus_associates : Pi (x y z : Nat), nat_Eq (plus x (plus y z)) (plus (plus x y) z)
+plus_associates zero y z = nat_refl (plus y z)
+plus_associates (succ x) y z = plus_associates x y z
+
+plus_zero : Pi (n : Nat), nat_Eq n (plus n zero)
+plus_zero zero = nat_refl zero
+plus_zero (succ n) = plus_zero n
+
+plus_succ : Pi (n m : Nat), nat_Eq (succ (plus m n)) (plus m (succ n))
+plus_succ n zero = nat_refl (succ n)
+plus_succ n (succ m) = plus_succ n m
+
+plus_commutes : Pi (n m : Nat), nat_Eq (plus n m) (plus m n)
+plus_commutes zero m = plus_zero m
+plus_commutes (succ n) m =
+  let ih = plus_commutes n m in
+  let ps = plus_succ n m in
+    nat_subst (succ (plus m n)) (plus m (succ n)) (nat_Eq (succ (plus n m))) ps ih
+    
+mult : Nat -> Nat -> Nat
+mult zero m = zero
+mult (succ n) m = plus m (mult n m)
+
+less : Nat -> Nat -> Bool
+less n m = is_lt (nat_compare n m)
+
+Less : Nat -> Nat -> Type
+Less n m = b2t (less n m)
+
+{- rejected for some weird reason
+Less : Nat -> Nat -> Type
+Less _ zero = Void
+Less zero (succ _) = Unit
+Less (succ n) (succ m) = Less n m
+-}
+
+Leq : Nat -> Nat -> Type
+Leq n m = Less n (succ m)
+
+less_than_zero : Pi (n : Nat), Less n zero => Void
+less_than_zero zero ()
+less_than_zero (succ _) ()
+
+less_base : Pi (n : Nat), Less n (succ n)
+less_base zero = tt
+less_base (succ n) = less_base n
+
+less_step : Pi (n m : Nat), Less n m -> Less n (succ m)
+less_step zero m l = tt
+less_step (succ n) zero ()
+less_step (succ n) (succ m) l = less_step n m l
+
+-- this function warrants a better equation compiler, splitting on x and y in the void cases but not their
+-- predecessor
+leq_trans : Pi (x y z : Nat), Leq x y -> Leq y z -> Leq x z
+leq_trans zero y z l1 l2 = tt
+leq_trans (succ x) zero z l1 l2 = void (Leq (succ x) z) (less_than_zero x l1)
+leq_trans (succ x) (succ y) zero l1 l2 = void (Leq (succ x) zero) (less_than_zero y l2)
+leq_trans (succ x) (succ y) (succ z) l1 l2 = leq_trans x y z l1 l2
+
+strong : Pi (P : Nat -> Type)(h : Pi (0 x : Nat), (Pi 0 y : Nat, Less y x => P y) -> P x)(n : Nat)(0 m : Nat), Less m n => P m
+strong P h zero zero ()
+strong P h zero (succ _) ()
+strong P h (succ n) m l1 = h m (\j l2, strong P h n j (leq_trans (succ j) m n l2 l1))
+
+strong_induction : Pi (P : Nat -> Type)(h : Pi (0 x : Nat), (Pi 0 y : Nat, Less y x => P y) -> P x)(n : Nat), P n
+strong_induction p h n = strong p h (succ n) n (less_base n)
+
+nat_wf : Pi (n : Nat), Acc Nat Less n
+nat_wf n = strong_induction (Acc Nat Less) (intro Nat Less) n
+
+-- the error is now all the way down here
+foldr : Pi (a b : Type), (a -o b -o b) -> b -o List a -o b
+foldr a b f acc nil = acc
+foldr a b f acc (cons x xs) = f x (foldr a b f acc xs)
+
+foldl : Pi (a b : Type), (a -o b -o b) -> b -o List a -o b
+foldl a b f acc nil = acc
+foldl a b f acc (cons x xs) = foldl a b f (f x acc) xs
+
+reverse : Pi(a : Type), List a -o List a
+reverse a = foldl a (List a) (cons a) (nil a)
+
+map : Pi (a b : Type), (a -o b) -> List a -o List b
+map a b f = foldr a (List b) (\x acc, cons b (f x) acc) (nil b)
+
+length : Pi (a : Type), List a -> Nat
+length a nil = zero
+length a (cons x xs) = succ (length a xs)
+
+foo : Pi (n m : Nat), Eq Ord (nat_compare n m) (nat_compare (succ n) (succ m))
+foo n m = Refl Ord (nat_compare n m)
+
+bar : Pi (a : Type)(x : a)(xs : List a), Eq Nat (succ (length a xs)) (length a (cons a x xs))
+bar a x xs = Refl Nat (succ (length a xs))
+
+append : Pi (a : Type)(1 xs : List a)(1 ys : List a), List a
+append a xs ys = foldr a (List a) (cons a) ys xs
+
+nth : Pi (a : Type)(xs : List a)(n : Nat), Less n (length a xs) => a
+nth a nil zero ()
+nth a nil (succ _) ()
+nth a (cons x xs) zero l = x
+nth a (cons x xs) (succ n) l = nth a xs n l

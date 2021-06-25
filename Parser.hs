@@ -11,10 +11,8 @@ import Data.Maybe ( isJust )
 import Control.Monad.RWS
 import Debug.Trace
 
--- TODO
--- mk fault tolerant parser
--- make mutual blocks indented?
-
+type Name = String
+type QName = [Name]
 type Param = (Loc, Plicity, Mult, String, Expr)
 type Ctor = (Loc, String, Expr)
 
@@ -38,15 +36,15 @@ data Decl
   | Clause   Loc String [Pattern] Expr
 
 data Expr 
-  = EType   Loc Int
-  | ELift   Loc Int
-  | EName   Loc [String]
-  | EVar    Loc String
-  | EHole   Loc
-  | EApply  Loc Plicity Expr Expr
-  | EPi     Loc Loc Plicity Mult String Expr Expr
-  | ELam    Loc Loc Plicity Mult String Expr Expr
-  | ELet    Loc Loc String Expr Expr Expr
+  = EType  Loc Int
+  | ELift  Loc Int
+  | EName  Loc [String]
+  | EVar   Loc String
+  | EHole  Loc
+  | EApply Loc Plicity Expr Expr
+  | EPi    Loc Loc Plicity Mult String Expr Expr
+  | ELam   Loc Loc Plicity Mult String Expr Expr
+  | ELet   Loc Loc String Expr Expr Expr
   | ECase  Loc Expr Expr [(String,[String],Expr)]
 
 exprLoc :: Expr -> Loc
@@ -66,7 +64,7 @@ declLoc (FunDecl s _ _) = s
 declLoc (Clause s _ _ _) = s
 
 puncts :: [String]
-puncts = ["->", "=" , "()", "(" , ")" , "{", "}", "[", "]", "\\" , ".", ":", ","]
+puncts = ["->", "-o", "=>", "=" , "()", "(" , ")" , "{", "}", "[", "]", "\\" , ".", ":", ","]
 
 keywords :: [String]
 keywords = [
@@ -305,6 +303,7 @@ parseArrow = do
   t     <- peekToken
   case t of
     Pct "->" -> f Many begin lhs
+    Pct "-o" -> f One  begin lhs
     Pct "=>" -> f Zero begin lhs
     _ -> pure lhs
     where

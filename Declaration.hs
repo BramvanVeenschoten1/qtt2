@@ -1,24 +1,26 @@
 module Declaration where
 
 import Control.Monad.RWS.Lazy
-import Control.Monad.State.Lazy
+import Control.Monad.State.Lazy as S
 import Control.Monad.Trans
 import Core
-import Data.Bifunctor
 import Data.Function
 import Data.List as L
 import Data.Map as M
-import Datatype
 import Debug.Trace
-import ElabMonad as EM
 import Elaborator
 import Lexer (Loc, emptyLoc)
 import Parser
 import Prettyprint
+import Equations
+import Error
+import Termination
 import Reduction
-import Substitution
-import Typecheck
-import Utils
+
+{-
+TODO:
+- compute function heights
+-}
 
 type Clause = ([Pattern], Expr)
 
@@ -26,58 +28,50 @@ data Block
   = DataBlock [(Loc, Name, [Param], Expr, [Ctor])]
   | FunBlock [(Loc, Name, Expr, [Clause])]
 
-data DeclState = DeclState
-  { moduleName :: Name,
-    importedNames :: NameSpace,
-    internalNames :: NameSpace,
-    nextBlock :: Int,
-    signature :: Signature,
-    elabState :: ElabState
-  }
 
-type DeclElab = StateT DeclState (Either String)
+data DeclState = DeclState {
+  nextBlock :: Int,
+  moduleName :: Name,
+  importedNames :: NameSpace,
+  internalNames :: NameSpace,
+  signature :: Signature}
 
 mergeNameSpace :: NameSpace -> NameSpace -> NameSpace
-mergeNameSpace (n0, q0) (n1, q1) = (M.unionWith (++) n0 n1, M.union q0 q1)
+mergeNameSpace (n0,q0) (n1,q1) = (M.unionWith (++) n0 n1, M.union q0 q1)
 
-ensureUnique :: QName -> DeclElab ()
-ensureUnique qname = do
-  qname' <- gets (M.lookup qname . snd . internalNames)
-  case qname' of
-    Nothing -> pure ()
-    Just (info, _) -> Control.Monad.State.Lazy.lift $ Left (showQName qname ++ " is already defined here:\n" ++ show info)
+emptyNameSpace :: NameSpace
+emptyNameSpace = (M.empty,M.empty)
 
-ensureDistinct :: [String] -> DeclElab ()
-ensureDistinct [] = pure ()
-ensureDistinct (name : names)
-  | name `elem` names = Control.Monad.State.Lazy.lift $ Left "names in a block must be distinct"
-  | otherwise = ensureDistinct names
+emptySignature = Signature M.empty M.empty
 
-updateNameSpace :: [(QName, Loc, Reference)] -> NameSpace -> NameSpace
-updateNameSpace names (shorts, longs) =
-  let shorts' = L.foldr (\(qname, _, _) -> insertWith (++) (last qname) [qname]) shorts names
-      longs' = L.foldr (\(qname, loc, ref) -> M.insert qname (loc, ref)) longs names
-   in (shorts', longs')
+type DeclElab = StateT DeclState (Either Error)
 
-runTypechecker :: Elab a -> DeclElab a
+insertName :: (QName, Loc, Ref) -> DeclElab ()
+insertName (qname,loc,ref) = do
+  (shorts,longs) <- gets internalNames
+  case M.lookup qname longs of
+    Nothing -> do
+      traceM (showQName qname ++ " defined\n")
+      
+      modify (\st -> st {
+        internalNames =
+          (insertWith (++) (last qname) [qname] shorts,
+           M.insert qname (loc, ref) longs)})
+    Just (loc, _) -> S.lift $ Left $ NameAlreadyDefined loc qname
+
+runTypechecker :: (ElabState -> Either Error a) -> DeclElab a
 runTypechecker x = do
-  DeclState modname imported internal nextBlock sig st <- get
+  DeclState _ modname imported internal sig <- get
+  case x (mergeNameSpace imported internal, sig) of
+    Left err -> S.lift (Left err)
+    Right x -> pure x
 
-  let result =
-        runRWST
-          x
-          (ElabEnv modname (mergeNameSpace imported internal) Safe [] nextBlock sig)
-          st
-
-  case result of
-    Right (a, st', ()) -> do
-      modify (\st -> st {elabState = st'})
-      pure a
-    Left (msg, j) -> Control.Monad.State.Lazy.lift $ Left $ msg
-
-groupDecls :: [Decl] -> Either String [Block]
+groupDecls :: [Decl] -> Either Error [Block]
 groupDecls = coupleGroups . groupBy sameDeclKind
   where
+    head (x:_) = x
+    head _ = error "decl head"
+    
     sameDeclKind DataDecl {} DataDecl {} = True
     sameDeclKind DataDef {} DataDef {} = True
     sameDeclKind FunDecl {} FunDecl {} = True
@@ -96,26 +90,26 @@ groupDecls = coupleGroups . groupBy sameDeclKind
     declLoc (FunDecl x _ _) = x
     declLoc (Clause x _ _ _) = x
 
-    findDefs :: [Decl] -> [Decl] -> Either String [(Loc, Name, [Param], Expr, [Ctor])]
+    findDefs :: [Decl] -> [Decl] -> Either Error [(Loc, Name, [Param], Expr, [Ctor])]
     findDefs [] [] = pure []
-    findDefs (DataDef loc _ _ : _) [] = Left (show loc ++ "definition was not declared")
+    findDefs (DataDef loc _ _ : _) [] = Left (BodyWithoutDecl loc)
     findDefs defs (decl@(DataDecl loc name params arity) : decls) = case find ((name ==) . declName) defs of
       Just (DataDef _ _ ctors) -> do
         block <- findDefs (deleteBy ((==) `on` declName) decl defs) decls
         pure ((loc, name, params, arity, ctors) : block)
-      Nothing -> Left (show loc ++ "declaration lacks accompanying definition")
+      Nothing -> Left (DeclWithoutBody loc)
 
-    findClauses :: [[Decl]] -> [Decl] -> Either String [(Loc, Name, Expr, [Clause])]
+    findClauses :: [[Decl]] -> [Decl] -> Either Error [(Loc, Name, Expr, [Clause])]
     findClauses [] [] = pure []
-    findClauses ((Clause loc _ _ _ : _) : _) [] = Left (show loc ++ "definition was not declared")
+    findClauses ((Clause loc _ _ _ : _) : _) [] = Left (BodyWithoutDecl loc)
     findClauses clauses (decl@(FunDecl loc name ty) : decls) = case find ((name ==) . declName . head) clauses of
       Just c -> do
         let clauses' = fmap (\(Clause _ _ pats rhs) -> (pats, rhs)) c
         block <- findClauses (deleteBy ((==) `on` (declName . head)) c clauses) decls
         pure ((loc, name, ty, clauses') : block)
-      Nothing -> Left (show loc ++ "declaration lacks accompanying definition")
+      Nothing -> Left (DeclWithoutBody loc)
 
-    coupleGroups :: [[Decl]] -> Either String [Block]
+    coupleGroups :: [[Decl]] -> Either Error [Block]
     coupleGroups [] = pure []
     coupleGroups (decls : defs : groups) = case (head decls, head defs) of
       (DataDecl {}, DataDef {}) -> do
@@ -126,10 +120,10 @@ groupDecls = coupleGroups . groupBy sameDeclKind
         block <- findClauses (groupBy ((==) `on` declName) defs) decls
         blocks <- coupleGroups groups
         pure (FunBlock block : blocks)
-      (FunDecl loc _ _, _) -> Left (show loc ++ "declarations lacks accompanying definition")
-      (DataDecl loc _ _ _, _) -> Left (show loc ++ "declarations lacks accompanying definition")
-      (DataDef loc _ _, _) -> Left (show loc ++ "definitions lacks type declaration")
-      (Clause loc _ _ _, _) -> Left (show loc ++ "definitions lacks type declaration")
+      (FunDecl loc _ _, _) -> Left (DeclWithoutBody loc)
+      (DataDecl loc _ _ _, _) -> Left (DeclWithoutBody loc)
+      (DataDef loc _ _, _) -> Left (BodyWithoutDecl loc)
+      (Clause loc _ _ _, _) -> Left (BodyWithoutDecl loc)
 
 checkBlocks :: [Block] -> DeclElab ()
 checkBlocks = mapM_ f
@@ -139,7 +133,7 @@ checkBlocks = mapM_ f
 
 checkFunctions :: [(Loc, Name, Expr, [Clause])] -> DeclElab ()
 checkFunctions defs = do
-  modname <- gets Declaration.moduleName
+  modname <- gets moduleName
 
   block <- gets nextBlock
 
@@ -148,67 +142,61 @@ checkFunctions defs = do
       qnames = fmap (\name -> [modname, name]) defnames
 
   tys <- runTypechecker $
-    flip mapM deftys $ \ty -> do
-      (ty, k, _) <- inference ty
-      Elaborator.ensureSort emptyLoc k
-      solveConstraints
-      ty' <- finalize ty
-      put emptyElabState
-      pure ty'
+    \st -> flip mapM deftys $ \ty -> do
+      (ty, k, _) <- synth st [] ty
+      checkSort (snd st) [] emptyLoc k
+      pure ty
 
-  traceM "signatures ok"
+  let ctx = zipWith (\name ty -> Hyp name ty Nothing) defnames tys
+  
+      checkBody :: ElabState -> Term -> [Clause] -> Either Error Term
+      checkBody st t cs = compileEquations st ctx (fmap mkProblem cs) t
+  
+  bodies <- runTypechecker $ \st -> zipWithM (checkBody st) tys clauses
 
-  let assertOneClause :: [Clause] -> Clause
-      assertOneClause [clause] = clause
-      assertOneClause xs = error "multiple clauses are not supported yet"
+  sig <- gets signature
 
-      checkBody :: Term -> Clause -> Elab Term
-      checkBody t c = do
-        t' <- fst <$> checkClause t c
-        t2 <- finalize t'
-        put emptyElabState
-
-        t3 <- runCore (showTerm t2)
-        traceM t3
-
-        pure t2
-
-      checkClause :: Term -> Clause -> Elab (Term,UseEnv)
-      checkClause (Pi Implicit m n ta tb) clause = do
-        (rhs,urhs) <- local (EM.push (Hyp Implicit m n ta Nothing)) (checkClause tb clause)
-        let (u:us) = urhs
-        checkUse emptyLoc [] m u
-        pure (Lam Implicit m n ta rhs,us)
-      checkClause (Pi Explicit m n ta tb) (PApp l nl n' [] : args, rhs) = do
-        (rhs,urhs) <- local (EM.push (Hyp Explicit m n' ta Nothing)) (checkClause tb (args, rhs))
-        let (u:us) = urhs
-        checkUse emptyLoc [] m u
-        pure (Lam Implicit m n' ta rhs, us)
-      checkClause _ (_ : _, rhs) = error $ show (exprLoc rhs) ++ "pattern matching clauses not supported yet"
-      checkClause ty ([], rhs) = elaborate rhs ty
-
-      firstClauses = fmap assertOneClause clauses
-
-  bodies <- runTypechecker $ zipWithM checkBody tys firstClauses
-
-  let functions = zipWith Function tys bodies
-
-      objects = FunctionBlock 0 True True functions
-
-      refs = fmap (\defno -> Def block defno 0 True) [0 ..]
-
-      name_loc_refs = zip3 qnames deflocs refs
-
-  modify
-    ( \st ->
-        st
-          { nextBlock = block + 1,
-            internalNames = updateNameSpace name_loc_refs (internalNames st),
-            Declaration.signature = second (M.insert block objects) (Declaration.signature st)
-          }
-    )
-
-  traceM $ show qnames ++ " defined"
+  let rec_calls = fmap (getRecursiveCalls sig ctx) bodies
+      height = 1 + maximum (fmap heightOf bodies)
+  
+  case rec_calls of
+    [[]] -> do
+      
+      let qname = head qnames
+          loc = head deflocs
+          ref = Def block height
+          top = Top (showQName qname) ref
+          ty = head tys
+          body = psubst [top] (head bodies)
+      
+      insertName (qname,loc,ref)
+      
+      modify (\st -> st {
+        nextBlock = block + 1,
+        signature = Signature
+          (sigFixs (signature st))
+          (M.insert block (ty,body) (sigDefs (signature st)))
+          (sigData (signature st))})
+    _ -> do
+      
+      rec_args <- S.lift $ maybe
+        (Left (Msg (show rec_calls ++ "\ncannot infer decreasing path in fixpoint:\n" ++
+          concatMap show deflocs))) Right (findRecparams rec_calls)
+      
+      let makeRef defno rec_arg = Fix block defno rec_arg height 0    
+          refs = zipWith makeRef [0..] rec_args
+          tops = zipWith Top (fmap showQName qnames) refs
+          typed_bodies = zip tys (fmap (psubst tops) bodies)
+          name_loc_refs = zip3 qnames deflocs refs
+      
+      mapM_ insertName name_loc_refs
+      
+      modify (\st -> st {
+        nextBlock = block + 1,
+        signature = Signature
+          (M.insert block typed_bodies (sigFixs (signature st)))
+          (sigDefs (signature st))
+          (sigData (signature st))})
 
 checkData :: [(Loc, Name, [Param], Expr, [Ctor])] -> DeclElab ()
 checkData defs = do
@@ -225,95 +213,56 @@ checkData defs = do
 
       ctor_qnames = concat (zipWith (\qname ctor_names -> fmap (\name -> qname ++ [name]) ctor_names) qnames ctor_names)
 
-  ensureDistinct names
-  mapM_ ensureDistinct ctor_names
-  mapM_ ensureUnique qnames
-  mapM_ ensureUnique ctor_qnames
+  let checkParams :: ElabState -> Context -> [Param] -> Expr -> Either Error  (Context, Term)
+      checkParams st ctx [] e = case e of
+          EType loc 0 -> Left (InductiveProp loc)
+          EType loc l -> pure (ctx, Type l)
+          _ -> Left (Msg "indices not supported")
+      checkParams st ctx ((_, p, m, name, ty) : params) e = do
+        (ty, _, _) <- synth st ctx ty
+        checkParams st (Hyp name ty Nothing : ctx) params e
 
-  let checkParams :: [Param] -> Expr -> Elab (Context, Term)
-      checkParams [] e = do
-        (arity, _) <- elaborate e Kind
-        solveConstraints
-        arity' <- finalize arity
-        ctx' <-
-          asks EM.context
-            >>= mapM
-              ( \hyp -> do
-                  ty' <- finalize (hypType hyp)
-                  pure (hyp {hypType = ty'})
-              )
-        put emptyElabState
-        pure (ctx', arity')
-      checkParams ((_, p, m, name, ty) : ctx) e = do
-        (ty, _, _) <- inference ty
-        local (EM.push (Hyp p m name ty Nothing)) (checkParams ctx e)
+  (paramss, arities) <- unzip <$> runTypechecker (\st -> zipWithM (checkParams st []) paramss arities)
 
-  (paramss, arities) <- unzip <$> runTypechecker (zipWithM checkParams paramss arities)
-
-  let unrollPi :: Term -> Int
-      unrollPi (Pi _ _ _ _ dst) = 1 + unrollPi dst
-      unrollPi _ = 0
-
-      paramnos = fmap length paramss
-      indexnos = fmap unrollPi arities
+  let paramnos = fmap length paramss
+      indexnos = fmap countDomains arities
 
       extendArity :: Term -> Context -> Term
-      extendArity = L.foldl (\acc (Hyp p m name ty _) -> Pi p m name ty acc)
+      extendArity = L.foldl (\acc (Hyp name ty _) -> Pi Zero name ty acc)
 
       -- arities extended with parameters
-      arities_ext = zipWith extendArity arities paramss
+      extended_arities = zipWith extendArity arities paramss
 
-      ctx_with_arities = reverse (zipWith (\name ty -> Hyp Explicit Zero name ty Nothing) names arities_ext)
+      ctx_with_arities = reverse (zipWith (\name ty -> Hyp name ty Nothing) names extended_arities)
 
-      checkCtor :: Int -> Int -> Ctor -> Elab (Int, Term)
-      checkCtor defno pno (loc, name, expr) = do
-        (t, _, _) <- inference expr
-        solveConstraints
-        t' <- finalize t
-        put emptyElabState
-        -- u <- allOccurrencesPositive loc defcount defno pno pno (pno + defcount) t
-        pure (0, t')
+      checkCtor :: ElabState -> Context -> Int -> Int -> Ctor -> Either Error (Int, Term)
+      checkCtor st ctx defno pno (loc, name, expr) = do
+        (t, _, _) <- synth st ctx expr
+        --u <- allOccurrencesPositive loc defcount defno pno pno (pno + defcount) t
+        pure (0,t)
 
-      checkCtorBlock :: (Int, Context, [Ctor]) -> Elab (Int, [Term])
-      checkCtorBlock (defno, params, ctors) = do
-        (us, ctors) <- unzip <$> local (\env -> env {EM.context = params ++ EM.context env}) (mapM (checkCtor defno (length params)) ctors)
+      checkCtorBlock :: ElabState -> Context ->  (Int, Context, [Ctor]) -> Either Error (Int, [Term])
+      checkCtorBlock st ctx (defno, params, ctors) = do
+        (us, ctors) <- unzip <$> mapM (checkCtor st (params ++ ctx_with_arities) defno (length params)) ctors
         pure (minimum (maxBound : us), ctors)
 
-  --traceM "arities:"
-
-  arities' <- mapM (runTypechecker . runCore . showTerm) arities_ext
-  traceM (unlines arities')
-
   (us, ctor_tys) <-
-    runTypechecker $
-      unzip
-        <$> local
-          (\env -> env {EM.context = ctx_with_arities})
-          (mapM checkCtorBlock (zip3 [0 ..] paramss ctorss))
+    runTypechecker $ \st ->
+      unzip <$> mapM (checkCtorBlock st ctx_with_arities) (zip3 [0 ..] paramss ctorss)
 
-  let ctor_arities = fmap (fmap unrollPi) ctor_tys -- compute arities
-
-      -- abstracted ctors explicitly quantify over the datatype parameters
+  let -- abstracted ctors explicitly quantify over the datatype parameters
       abstractCtors :: Context -> [Term] -> [Term]
       abstractCtors params ctors =
-        fmap
-          ( \acc ->
-              L.foldl
-                ( \acc (Hyp p m name ty _) ->
-                    Pi Implicit Zero name ty acc
-                )
-                acc
-                params
-          )
-          ctors
+        fmap (\acc -> L.foldl
+                (\acc (Hyp name ty _) -> Pi Zero name ty acc) acc params) ctors
 
       abstracted_ctors = zipWith abstractCtors paramss ctor_tys
 
       upno = minimum us
 
-      def_refs = fmap (Ind block) [0 ..]
+      def_refs = fmap (\datano -> Ind block datano upno) [0 ..]
 
-      def_consts = zipWith Top qnames def_refs
+      def_consts = zipWith (\qname -> Top (intercalate "." qname)) qnames def_refs
 
       def_name_loc_refs = zip3 qnames def_locs def_refs
 
@@ -324,7 +273,7 @@ checkData defs = do
           ( zipWith3
               ( \ctors params defno ->
                   fmap
-                    (\ctorno -> Con block defno ctorno (length params) True)
+                    (\ctorno -> Con block defno ctorno (length params))
                     [0 .. length ctors - 1]
               )
               ctor_instances
@@ -334,49 +283,32 @@ checkData defs = do
 
       ctor_locs = concatMap (fmap (\(loc, _, _) -> loc)) ctorss
 
-      ctor_ref_name_locs = zip3 ctor_qnames ctor_locs ctor_refs
+      ctor_name_loc_refs = zip3 ctor_qnames ctor_locs ctor_refs
 
-      name_loc_refs = ctor_ref_name_locs ++ def_name_loc_refs
-  --name_names = zip (concat ctor_names) ctor_qnames ++ zip names qnames
+      name_loc_refs = ctor_name_loc_refs ++ def_name_loc_refs
 
-  --traceM "ctors:"
+  let objects = zipWith3 (\arity ctor_names ctor_types ->
+        (arity, zip ctor_names ctor_types))
+        extended_arities
+        ctor_names
+        ctor_instances
+  when (names == ["Acc"]) $ do
+    traceM (unlines (concat (fmap (fmap (showTerm [])) ctor_tys)))
+    traceM (unlines (concat (fmap (fmap (showTerm [])) abstracted_ctors)))
+    traceM (unlines (concat (fmap (fmap (showTerm [])) ctor_instances)))
+  
+  --traceM (unlines (concat (fmap (fmap (showTerm [])) ctor_instances)))
+  
+  mapM_ insertName name_loc_refs
 
-  ctors' <- mapM (runTypechecker . runCore . showTerm) (concat ctor_instances)
-  traceM (unlines ctors')
-
-  let objects =
-        Core.DataBlock
-          { dataTotal = True,
-            uniparamno = upno,
-            dataDefs =
-              zipWith7
-                ( \name arity ctor_names ctor_arities ctor_tys pno ino ->
-                    Datatype
-                      { dataName = name,
-                        arity = arity,
-                        paramno = pno,
-                        indexno = ino,
-                        introRules = zipWith4 Constructor ctor_names ctor_arities ctor_tys (repeat True)
-                      }
-                )
-                qnames
-                arities_ext
-                ctor_names
-                ctor_arities
-                ctor_instances
-                paramnos
-                indexnos
-          }
-
-  modify
-    ( \st ->
-        st
-          { nextBlock = block + 1,
-            internalNames = updateNameSpace name_loc_refs (internalNames st),
-            Declaration.signature = first (M.insert block objects) (Declaration.signature st)
-          }
-    )
-
+  modify (\st -> st {
+    nextBlock = block + 1,
+    signature = Signature
+      (sigFixs (signature st))
+      (sigDefs (signature st))
+      (M.insert block objects (sigData (signature st)))})
+  
+{-
   let computeAux compute name defno dat = do
         def <- runTypechecker $ compute block defno dat
 
@@ -385,7 +317,7 @@ checkData defs = do
         ty <- runTypechecker $ fst <$> runCore (infer def)
         block' <- gets nextBlock
         let qname = dataName dat
-            ref = Def block' 0 1 True
+            ref = Fun block' 0 1 True
             name' = qname ++ [name]
             nlr = (name', emptyLoc, ref)
             fun = Function ty def
@@ -401,3 +333,5 @@ checkData defs = do
           )
 
   traceM $ show qnames ++ " defined"
+-}
+

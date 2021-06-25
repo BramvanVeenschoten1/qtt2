@@ -3,6 +3,8 @@ module Elaborator where
 import Lexer(Loc)
 import Parser
 import Core
+import Error
+import Reduction
 
 import Data.List
 import Control.Monad
@@ -12,10 +14,8 @@ import Data.Functor
 import Data.Map as M
 import Data.Either
 import Data.Maybe
+import Prettyprint
 
-import Lexer(Loc)
-import Parser
-import Parser
 import Debug.Trace
 
 data Use
@@ -58,63 +58,22 @@ branchUses :: Loc -> [Uses] -> Uses
 branchUses info [] = noUses
 branchUses info xs = fmap (CaseUse info) (transpose xs)
 
-type Name = String
-type QName = [Name]
-
-data Error
-  = Msg String
-  | TypeError Context Loc Term Term Term
-  | AnnotError Context Loc Term Term
-  | ExpectedFunction Context Loc Term
-  | ExpectedSort Context Loc Term
-  | InferLambda Context Loc
-  
-  | UndefinedName Loc QName
-  | AmbiguousName Loc Name
-  
-  | LinearUnused Loc
-  | LinearUsedAlready Loc
-  | LinearUsedUnrestricted Loc
-  | LinearCase Loc
-  | ErasedUsedRelevant Loc
-
-  | RefuteNonEmpty Loc
-  | SplitNonData Loc
-  | ArityMismatch Loc Int Int -- given, expected
-  | ConstructorMismatch Loc String Context Term
-  | NonCoveringSplit Loc String
-  | IntroNonFunction
-  | UnevenPatterns
-
 type NameSpace = (Map Name [QName], Map QName (Loc, Ref))
 
-data ElabState = ElabState {
-  newName :: Int,
-  moduleName :: Name,
-  importedNames :: NameSpace,
-  internalNames :: NameSpace,
-  signature :: Signature}
+type ElabState = (NameSpace,Signature)
 
-mergeNameSpace :: NameSpace -> NameSpace -> NameSpace
-mergeNameSpace (n0,q0) (n1,q1) = (M.unionWith (++) n0 n1, M.union q0 q1)
-
-emptyNameSpace :: NameSpace
-emptyNameSpace = (M.empty,M.empty)
-
-emptySignature = Signature M.empty M.empty
-
-lookupQName :: QName -> ElabState -> Maybe (Loc,Ref)
-lookupQName qname st = M.lookup qname (M.union (snd (internalNames st)) (snd (importedNames st)))
+lookupQName :: QName -> ElabState -> Maybe (Loc, Ref)
+lookupQName qname st = M.lookup qname (snd (fst st))
 
 lookupName :: Name -> ElabState -> Maybe [QName]
-lookupName name st = M.lookup name (unionWith (++) (fst (importedNames st)) (fst (internalNames st)))
+lookupName name st = M.lookup name (fst (fst st))
 
 -- look up a qualified name in the symbol table
 lookupQualified :: ElabState -> Loc -> QName -> Either Error (Term,Term,Uses)
 lookupQualified st loc qname =
   case lookupQName qname st of
     Nothing -> Left (UndefinedName loc qname)
-    Just (_,ref) -> pure (Top ref, typeOfRef (signature st) ref, noUses)
+    Just (loc,ref) -> pure (Top (intercalate "." qname) ref, typeOfRef (snd st) ref, noUses)
 
 -- look up a name in the symbol table and lookup Unqualified if appropriate
 lookupUnqualified :: ElabState -> Loc -> Name -> Either Error (Term,Term,Uses)
@@ -123,7 +82,7 @@ lookupUnqualified st loc name = let
     Nothing -> Left (UndefinedName loc [name])
     Just [qname] -> case lookupQName qname st of
       Nothing -> error "incomplete namespace"
-      Just (_,ref) -> pure (Top ref, typeOfRef (signature st) ref, noUses)
+      Just (loc,ref) -> pure (Top (intercalate "." qname) ref, typeOfRef (snd st) ref, noUses)
     Just xs -> Left (AmbiguousName loc name)
 
 -- lookup a name in the context and return appropriate uses if present
@@ -196,7 +155,7 @@ checkLetBinding st ctx (EHole _) a = synth st ctx a
 checkLetBinding st ctx ta a = do
   let la = exprLoc ta
   (ta,ka,_) <- synth st ctx ta
-  checkSort (signature st) ctx la ka
+  checkSort (snd st) ctx la ka
   (a,ua) <- check st ctx a ta
   pure (a,ta,ua)
 
@@ -210,7 +169,7 @@ synth st ctx expr = case expr of
   EVar   loc name -> maybe (lookupUnqualified st loc name) pure (lookupCtx ctx loc name)
   EApply loc _ f arg -> do
     (f,tf,uf) <- synth st ctx f
-    (m,name,ta,tb) <- ensureFunction (signature st) ctx loc tf
+    (m,name,ta,tb) <- ensureFunction (snd st) ctx loc tf
     (a,ua) <- check st ctx arg ta
     pure (App f a, psubst [a] tb, plusUses (timesUses m ua) uf)
   ELet loc mloc name ta a b -> do
@@ -224,7 +183,7 @@ synth st ctx expr = case expr of
   ELam loc mloc p m name ta b -> do
     let la = exprLoc ta
     (ta,ka,_) <- synth st ctx ta
-    checkSort (signature st) ctx la ka
+    checkSort (snd st) ctx la ka
     let hyp = Hyp {
           hypName = name,
           hypType = ta,
@@ -242,15 +201,15 @@ synth st ctx expr = case expr of
           hypType = ta,
           hypValue  = Nothing}
     (tb,kb,_) <- synth st (hyp : ctx) tb
-    checkSort (signature st) ctx la ka
-    checkSort (signature st) ctx lb kb
+    checkSort (snd st) ctx la ka
+    checkSort (snd st) ctx lb kb
     pure (Pi m name ta tb, kb, noUses)
 
 -- check an expression agains a given type and compute the corresponding core term
 check :: ElabState -> Context -> Expr -> Term -> Either Error (Term,Uses)
 check st ctx expr ty = case expr of
   ELam loc mloc p _ name (EHole _) b -> do
-    (m, _, ta, tb) <- ensureFunction (signature st) ctx loc ty
+    (m, _, ta, tb) <- ensureFunction (snd st) ctx loc ty
     let hyp = Hyp {
             hypName = name,
             hypType = ta,
@@ -261,14 +220,14 @@ check st ctx expr ty = case expr of
     pure (Lam (useSum ux) name ta b, ub)
   ELam loc mloc p _ name ta b -> do
     (ta,_,_) <- synth st ctx ta
-    let ty' = whnf (signature st) ctx ty
-    (m, _, ta', tb) <- ensureFunction (signature st) ctx loc ty
+    let ty' = whnf (snd st) ctx ty
+    (m, _, ta', tb) <- ensureFunction (snd st) ctx loc ty
     let hyp = Hyp {
             hypName = name,
             hypType = ta,
             hypValue  = Nothing}
     
-    if convertible (signature st) ctx False ta' ta
+    if convertible (snd st) ctx False ta' ta
     then pure ()
     else
       Left (AnnotError ctx loc ta' ta)
@@ -288,13 +247,15 @@ check st ctx expr ty = case expr of
   x -> do
     (a,ta,ua) <- synth st ctx x
     
-    let ty' = whnf (signature st) ctx ty
-        ta' = whnf (signature st) ctx ta
+    let ty' = whnf (snd st) ctx ty
+        ta' = whnf (snd st) ctx ta
     
-    if convertible (signature st) ctx False ta ty
+    if convertible (snd st) ctx False ta ty
     then pure ()
-    else
-      Left (TypeError ctx (exprLoc x) ty' a ta')
+    else 
+      --trace (showTerm ctx ty') $
+      --trace (showTerm ctx ta') $
+      Left (TypeError ctx (exprLoc x) ty a ta)
     
     pure (a,ua)
 

@@ -1,7 +1,7 @@
 module Modules where
 
 import Control.Monad
-import Control.Monad.State.Lazy
+import Control.Monad.State.Lazy as S
 import Core
 import Data.Either
 import Data.Function
@@ -9,63 +9,61 @@ import Data.List as L
 import Data.Map as M
 import Data.Maybe
 import Debug.Trace
+import Elaborator
 import Declaration
-import ElabMonad
 import Lexer (Loc)
 import Parser
 import Prettyprint
-import Utils
+import Error
 
 import Control.Monad.RWS
 
 modName (n, _, _) = n
 
-sortDependencies :: [Module] -> Either String [Module]
+sortDependencies :: [Module] -> Either Error [Module]
 sortDependencies mods = fmap reverse (topological [] [] mods)
   where
     findModule name =
       maybe
-        (Left ("unknown module: " ++ name))
+        (Left (UnknownModule name))
         pure
         (find ((== name) . modName) mods)
 
     topological exploring explored [] = pure explored
     topological exploring explored (mod@(name, children, _) : mods)
-      | name `elem` exploring = Left ("circular imports: " ++ unwords exploring)
+      | name `elem` exploring = Left (CircularImports exploring)
       | name `elem` fmap modName explored = topological exploring explored mods
       | otherwise = do
         children' <- mapM findModule children
         explored' <- topological (name : exploring) explored children'
         topological exploring (mod : explored') mods
 
-checkModules :: [Module] -> Either String String
+checkModules :: [Module] -> Either Error ()
 checkModules mods = do
   runStateT
-    (lift (sortDependencies mods) >>= mapM_ checkModule)
-    (M.empty, mempty, 0, emptyElabState)
+    (S.lift (sortDependencies mods) >>= mapM_ checkModule)
+    (mempty, Signature mempty mempty mempty, 0)
 
-  pure ("\nok, defined modules:\n" ++ unlines (fmap modName mods))
+  pure ()
 
-checkModule :: Module -> StateT (Map Name NameSpace, Signature, Int, ElabState) (Either String) ()
+checkModule :: Module -> StateT (Map Name NameSpace, Signature, Int) (Either Error) ()
 checkModule (name, imports, decls) = do
-  (names, sig, nextb, est) <- get
+  (names, sig, nextb) <- get
 
   let 
       st =
         DeclState
-          { Declaration.moduleName = name,
+          { moduleName = name,
             nextBlock = nextb,
             importedNames = L.foldl (\acc imp -> mergeNameSpace acc (names ! imp)) mempty imports,
             internalNames = mempty,
-            Declaration.signature = sig,
-            Declaration.elabState = est
+            Declaration.signature = sig
           }
 
-  (_, st') <- lift (runStateT (lift (groupDecls decls) >>= checkBlocks) st)
+  (_, st') <- S.lift (runStateT (S.lift (groupDecls decls) >>= checkBlocks) st)
 
   put
     ( M.insert name (internalNames st') names,
-      Declaration.signature st',
-      nextBlock st',
-      Declaration.elabState st'
+      signature st',
+      nextBlock st'
     )
