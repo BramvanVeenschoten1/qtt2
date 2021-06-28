@@ -1,0 +1,15 @@
+module DPair
+
+import Prelude
+
+data DPair (a : Type)(b : a -> Type): Type where
+  mk : Pi (x : a), b x -> DPair a b
+  
+fst : Pi (a : Type)(b : a -> Type), DPair a b -> a
+fst a b (mk x y) = x
+
+snd : Pi (a : Type)(b : a -> Type)(x : DPair a b), b (fst a b x)
+snd a b (mk x y) = y
+
+eta : Pi (a : Type)(b : a -> Type)(x : DPair a b), Eq (DPair a b) x (mk a b (fst a b x) (snd a b x))
+eta a b (mk x y) = Refl (DPair a b) (mk a b x y)

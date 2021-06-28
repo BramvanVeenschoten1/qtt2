@@ -21,6 +21,12 @@ data Token
   | Str [Int]
   deriving (Eq)
 
+showToken :: Token -> String
+showToken (Symbol s) = s
+showToken (Number n) = show n
+showToken (Pct s) = s
+showToken (Str _) = undefined
+
 type Position = (Int, Int)
 
 type Range = (Position, Position)
@@ -258,14 +264,14 @@ expectSymbol :: String -> Parser String
 expectSymbol msg = withLoc token >>= f
   where
     f (_, Symbol s) = pure s
-    f (loc, e) = expected loc msg (show loc)
+    f (loc, e) = expected loc msg (showToken e)
 
 expect :: String -> String -> Parser String
 expect x msg = withLoc token >>= f
   where
     f (_, Pct y)
       | x == y = pure y
-    f (loc, e) = expected loc msg (show loc)
+    f (loc, e) = expected loc msg (showToken e)
 
 -- parse an indented block of items
 -- if the next token is indented further, parse one or more items

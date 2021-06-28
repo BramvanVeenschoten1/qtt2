@@ -1,0 +1,55 @@
+module List
+
+import
+  Prelude
+  Nat
+
+data List(a : Type) : Type where
+  nil  : List a
+  cons : a -o List a -o List a
+
+foldr : Pi (a b : Type), (a -o b -o b) -> b -o List a -o b
+foldr a b f acc nil = acc
+foldr a b f acc (cons x xs) = f x (foldr a b f acc xs)
+
+foldl : Pi (a b : Type), (a -o b -o b) -> b -o List a -o b
+foldl a b f acc nil = acc
+foldl a b f acc (cons x xs) = foldl a b f (f x acc) xs
+
+reverse : Pi(a : Type), List a -o List a
+reverse a = foldl a (List a) (cons a) (nil a)
+
+map : Pi (a b : Type), (a -o b) -> List a -o List b
+map a b f = foldr a (List b) (\x acc, cons b (f x) acc) (nil b)
+
+length : Pi (a : Type), List a -> Nat
+length a nil = zero
+length a (cons x xs) = succ (length a xs)
+
+append : Pi (a : Type)(1 xs : List a)(1 ys : List a), List a
+append a xs ys = foldr a (List a) (cons a) ys xs
+
+append_associates : Pi (a : Type)(xs ys zs : List a), Eq (List a)
+  (append a xs (append a ys zs))
+  (append a (append a xs ys) zs)
+append_associates a nil ys zs = Refl (List a) (append a ys zs)
+append_associates a (cons x xs) ys zs =
+  cong (List a) (List a)
+    (append a xs (append a ys zs))
+    (append a (append a xs ys) zs)
+    (cons a x)
+    (append_associates a xs ys zs)
+
+{-
+double_reverse : Pi (a : Type)(xs : List a), Eq (List a) xs (reverse a (reverse a xs))
+double_reverse a nil = Refl (List a) (nil a)
+double_reverse a (cons x xs) =
+  let ih = double_reverse a xs in
+    tt
+-}
+
+nth : Pi (a : Type)(xs : List a)(n : Nat), Less n (length a xs) => a
+nth a nil zero l = liftBottom l a
+nth a nil (succ _) l = liftBottom l a
+nth a (cons x xs) zero l = x
+nth a (cons x xs) (succ n) l = nth a xs n l

@@ -1,0 +1,30 @@
+module Ord
+
+import
+  Prelude
+  Bool
+
+data Ord : Type where
+  lt : Ord
+  eq : Ord
+  gt : Ord
+
+is_lt : Ord -> Bool
+is_lt lt = true
+is_lt gt = false
+is_lt eq = false
+
+is_eq : Ord -> Bool
+is_eq lt = false
+is_eq eq = true
+is_eq gt = false
+
+is_gt : Ord -> Bool
+is_gt lt = false
+is_gt eq = false
+is_gt gt = true
+
+lex : Ord -> Ord -> Ord
+lex lt o = lt
+lex eq o = o
+lex gt o = gt

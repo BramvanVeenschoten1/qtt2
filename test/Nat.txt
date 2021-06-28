@@ -1,0 +1,136 @@
+module Nat
+
+import
+  Prelude
+  Wellfounded
+  Bool
+  Ord
+
+data Nat : Type where
+  zero : Nat
+  succ : Nat -o Nat
+
+no_conf_t : Nat -> Nat -> Prop
+no_conf_t zero zero = Top
+no_conf_t zero (succ _) = Bottom
+no_conf_t (succ _) zero = Bottom
+no_conf_t (succ n) (succ m) = Eq Nat n m
+
+no_conf_h : Pi x : Nat, no_conf_t x x
+no_conf_h zero = tt
+no_conf_h (succ n) = Refl Nat n
+
+no_conf : Pi (n m : Nat), Eq Nat n m -> no_conf_t n m
+no_conf n m e = e (no_conf_t n) (no_conf_h n) 
+
+cmp : Nat -> Nat -> Ord
+cmp zero zero = Ord.Ord.eq
+cmp zero (succ _) = lt
+cmp (succ _) zero = gt
+cmp (succ n) (succ m) = cmp n m
+
+refl : Pi n : Nat, b2t (is_eq (cmp n n))
+refl zero = tt
+refl (succ n) = refl n
+
+dec_left : Pi (n m : Nat), b2t (is_eq (cmp n m)) -> Eq Nat n m
+dec_left zero zero _ = Refl Nat zero
+dec_left zero (succ m) e = liftBottom e (Eq Nat zero (succ m))
+dec_left (succ n) zero e = liftBottom e (Eq Nat (succ n) zero)
+dec_left (succ n) (succ m) e = cong Nat Nat n m succ (dec_left n m e)
+
+dec_right : Pi (n m : Nat), Eq Nat n m -> b2t (is_eq (cmp n m))
+dec_right n m e = e (\z, b2t (is_eq (cmp n z))) (Nat.refl n)
+
+even : Nat -> Bool
+even zero = true
+even (succ n) = not (even n)
+
+odd : Nat -> Bool
+odd n = not (even n)
+
+plus : Nat -> Nat -> Nat
+plus zero m = m
+plus (succ n) m = succ (plus n m)
+
+plus_associates : Pi (x y z : Nat), Eq Nat (plus x (plus y z)) (plus (plus x y) z)
+plus_associates zero y z = Refl Nat (plus y z)
+plus_associates (succ x) y z =
+  cong Nat Nat (plus x (plus y z)) (plus (plus x y) z) succ (plus_associates x y z)
+
+plus_zero : Pi (n : Nat), Eq Nat n (plus n zero)
+plus_zero zero = Refl Nat zero
+plus_zero (succ n) =
+ cong Nat Nat n (plus n zero) succ (plus_zero n)
+
+plus_succ : Pi (n m : Nat), Eq Nat (succ (plus m n)) (plus m (succ n))
+plus_succ n zero = Refl Nat (succ n)
+plus_succ n (succ m) =
+  cong Nat Nat (succ (plus m n)) (plus m (succ n)) succ (plus_succ n m)
+
+plus_commutes : Pi (n m : Nat), Eq Nat (plus n m) (plus m n)
+plus_commutes zero m = plus_zero m
+plus_commutes (succ n) m =
+  plus_succ n m
+    (Eq Nat (succ (plus n m)))
+    (cong Nat Nat (plus n m) (plus m n) succ (plus_commutes n m))
+    
+mult : Nat -> Nat -> Nat
+mult zero m = zero
+mult (succ n) m = plus m (mult n m)
+
+less : Nat -> Nat -> Bool
+less n m = is_lt (cmp n m)
+
+-- {-
+Less : Nat -> Nat -> Prop
+Less zero zero = Bottom
+Less (succ _) zero = Bottom
+Less zero (succ _) = Top
+Less (succ n) (succ m) = Less n m
+-- -}
+
+{-
+Less : Nat -> Nat -> Prop
+Less _ zero = Bottom
+Less zero (succ _) = Top
+Less (succ n) (succ m) = Less n m
+-- -}
+
+Leq : Nat -> Nat -> Prop
+Leq n m = Less n (succ m)
+
+less_than_zero : Pi (n : Nat), Less n zero -> Bottom
+less_than_zero zero l = l
+less_than_zero (succ _) l = l
+
+less_base : Pi (n : Nat), Less n (succ n)
+less_base zero = tt
+less_base (succ n) = less_base n
+
+less_step : Pi (n m : Nat), Less n m -> Less n (succ m)
+less_step zero m l = tt
+less_step (succ n) zero l = liftBottom l (Less (succ n) (succ zero))
+less_step (succ n) (succ m) l = less_step n m l
+
+{-
+this function warrants a better equation compiler, enabling splitting on x and y in the void cases but not their
+predecessor. Alternatively, allow the more convenient definition for Less
+-}
+leq_trans : Pi (x y z : Nat), Leq x y -> Leq y z -> Leq x z
+leq_trans zero y z l1 l2 = tt
+leq_trans (succ x) zero z l1 l2 = liftBottom (less_than_zero x l1) (Leq (succ x) z)
+leq_trans (succ x) (succ y) zero l1 l2 = liftBottom (less_than_zero y l2) (Leq (succ x) zero)
+leq_trans (succ x) (succ y) (succ z) l1 l2 = leq_trans x y z l1 l2
+
+strong : Pi (P : Nat -> Type)(h : Pi (0 x : Nat), (Pi 0 y : Nat, Less y x => P y) -> P x)(n : Nat)(0 m : Nat), Less m n => P m
+strong P h zero zero l = liftBottom l (P zero)
+strong P h zero (succ m) l = liftBottom l (P (succ m))
+strong P h (succ n) m l1 = h m (\j l2, strong P h n j (leq_trans (succ j) m n l2 l1))
+
+strong_induction : Pi (P : Nat -> Type)(h : Pi (0 x : Nat), (Pi 0 y : Nat, Less y x => P y) -> P x)(n : Nat), P n
+strong_induction p h n = strong p h (succ n) n (less_base n)
+
+nat_wf : Pi (n : Nat), Acc Nat Less n
+nat_wf n = strong_induction (Acc Nat Less) (intro Nat Less) n
+

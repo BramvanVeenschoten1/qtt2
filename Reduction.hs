@@ -6,6 +6,7 @@ import Data.Function
 import Data.Map as M
 import Debug.Trace
 import Data.List
+import Data.Maybe
 
 data Config = Config Int [Config] Term [Config]
 
@@ -19,11 +20,7 @@ mkConf t = Config 0 [] t []
 unwind (Config k e t s) = mkApp (psubst (fmap unwind e) t) (fmap unwind s)
 
 reduce :: Signature -> Context -> Int -> Config -> (Config,Bool)
-reduce sig ctx delta config @ (Config k e t s) = fkets where
-  --one = ">> " ++ showConf ctx config
-  --two = "~> " ++ showConf ctx (fst (fkets)) ++ "\n"
-  
-  fkets = f k e t s
+reduce sig ctx delta (Config k e t s) = f k e t s where
 
   f :: Int -> [Config] -> Term -> [Config] -> (Config,Bool)
   --f k e t s
@@ -49,7 +46,7 @@ reduce sig ctx delta config @ (Config k e t s) = fkets where
       Just (Config _ _ (Top _ (Con {})) _) ->
         if delta >= height
         then (Config k e t s, False)
-        else f 0 [] (snd ((sigFixs sig ! blockno) !! defno)) s
+        else f 0 [] (snd (sigFixs sig ! blockno !! defno)) s
       _ -> (Config k e t s, True)
   f k e t @ (Case mult eliminee motive branches) s =
     case fst (reduce sig ctx 0 (Config k e eliminee [])) of
@@ -59,34 +56,59 @@ reduce sig ctx delta config @ (Config k e t s) = fkets where
   f k e t s = (Config k e t s, True)
 
 whnf sig ctx t = unwind (fst (reduce sig ctx 0 (mkConf t)))
- 
+
+betaReduce sig ctx t = unwind (fst (reduce sig ctx maxBound (mkConf t)))
+
 typeOf :: Signature -> Context -> Term -> Term
 typeOf sig ctx t = case t of
   Type n -> Type (n + 1)
-  Var n b -> Core.lift (n + 1) (hypType (ctx !! n))
+  Var n b -> Core.lift (n + 1) (hypType (fromMaybe undefined (nth n ctx)))
   Lift l -> liftTy l
-  Lam mult name src dst -> Pi mult name src (typeOf sig (Hyp name src Nothing : ctx) dst)
+  Lam mult name src dst ->
+    Pi mult name src (typeOf sig (Hyp name src Nothing : ctx) dst)
   Pi mult name src dst -> let
     ksrc = typeOf sig ctx src
     kdst = typeOf sig (Hyp name src Nothing : ctx) dst
     in case (ksrc,kdst) of
       (Type l0,Type l1) -> Type (if l1 == 0 then 0 else (max l0 l1))
-  Let mult name ta a b -> psubst [a] (typeOf sig (Hyp name ta (Just a) : ctx) b)
+      _ -> error (showTerm ctx ksrc ++ "\n" ++ showTerm ctx kdst)
+  Let mult name ta a b ->
+    let ta' = typeOf sig ctx a in
+    if convertible sig ctx False ta' ta
+    then psubst [a] (typeOf sig (Hyp name ta (Just a) : ctx) b)
+    else error (showTerm ctx ta' ++ "\n" ++ showTerm ctx ta)
   App fun arg -> case whnf sig ctx (typeOf sig ctx fun) of
-    Pi _ name src dst -> psubst [arg] dst
+    Pi _ name src dst ->
+      let argty = typeOf sig ctx arg in 
+      if convertible sig ctx False argty src
+      then psubst [arg] dst
+      else error (showTerm ctx argty ++ "\n" ++ showTerm ctx src)
     x -> error (showTerm ctx x)
   Top _ ref -> typeOfRef sig ref
-  Case _ eliminee motive _ -> App motive eliminee
+  Case mult eliminee motive branches -> let
+    elimType = whnf sig ctx (typeOf sig ctx eliminee)
+    in case unrollApp elimType of
+      (Top _ (Ind blockno datano _), args) ->
+        case whnf sig ctx (typeOf sig ctx motive) of
+          Pi _ _ src dst ->
+            if convertible sig ctx True src elimType  &&
+               (case whnf sig ctx dst of Type _ -> True; _ -> False) &&
+               and (zipWith3
+                 (\tag ctor b1 ->
+                   convertible sig ctx False
+                     (typeOf sig ctx b1)
+                     (computeBranchType mult blockno datano args motive tag ctor))
+                 [0..]
+                 (snd (sigData sig ! blockno !! datano))
+                 branches)
+            then betaReduce sig ctx (App motive eliminee)
+            else error "faulty match expression"
+      _ -> error (showTerm ctx elimType)
 
 convertible sig ctx flag t0 t1 =
-  --trace ("== " ++ showTerm ctx t0 ++ "\n== " ++ showTerm ctx t1 ++ "\n") $ 
-  irrelevant ctx t0 ||
+  --trace ("== " ++ showTerm ctx t0 ++ "\n== " ++ showTerm ctx t1 ++ "\n") $
   alpha ctx flag t0 t1 ||
   machine flag (beta (mkConf t0)) (beta (mkConf t1)) where
-  irrelevant ctx t = False
-    --case whnf sig ctx (typeOf sig ctx (typeOf sig ctx t)) of
-      --Type 0 -> True
-      --_ -> False
   
   alpha ctx flag (Type l0) (Type l1) = l0 == l1 || (not flag && l0 <= l1)
   alpha ctx flag (Var n0 _) (Var n1 _) = n0 == n1
@@ -100,9 +122,22 @@ convertible sig ctx flag t0 t1 =
     convertible sig ctx True ta0 ta1 &&
     convertible sig ctx True a0 a1 &&
     convertible sig (Hyp name ta0 (Just a0):ctx) flag b0 b1
-  alpha ctx flag (App f0 x0) (App f1 x1) =
-    convertible sig ctx True f0 f1 &&
-    convertible sig ctx True x0 x1
+  alpha ctx flag app0 @ (App f0 x0) app1 @ (App f1 x1) =
+    let
+      (fun0,args0) = unrollApp app0
+      (fun1,args1) = unrollApp app1
+      
+      alphaApp _ _ [] [] = True
+      alphaApp ctx ty (arg0 : args0) (arg1 : args1) =
+        case whnf sig ctx ty of
+          Pi _ name src dst ->
+            (case whnf sig ctx (typeOf sig ctx src) of
+              Type 0 -> True
+              x -> convertible sig ctx True arg0 arg1) &&
+            alphaApp ctx (psubst [arg0] dst) args0 args1
+          _ -> error (showTerm ctx ty)
+      alphaApp _ _ _ _ = False
+    in convertible sig ctx True fun0 fun1 && alphaApp ctx (typeOf sig ctx fun0) args0 args1
   alpha ctx flag (Case _ e0 m0 b0) (Case _ e1 m1 b1) =
     convertible sig ctx True e0 e1 &&
     convertible sig ctx True m0 m1 &&

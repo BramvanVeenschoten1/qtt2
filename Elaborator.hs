@@ -95,9 +95,9 @@ lookupCtx ctx loc name = f 0 ctx where
 
 
 -- check if a term is a valid sort
-checkSort :: Signature -> Context -> Loc -> Term -> Either Error ()
+checkSort :: Signature -> Context -> Loc -> Term -> Either Error Int
 checkSort sig ctx loc x = case whnf sig ctx x of
-  Type _ -> pure ()
+  Type l -> pure l
   _ -> Left (ExpectedSort ctx loc x)
 
 ensureFunction :: Signature -> Context -> Loc -> Term -> Either Error (Mult,Name,Term,Term)
@@ -164,7 +164,7 @@ synth :: ElabState -> Context -> Expr -> Either Error (Term,Term,Uses)
 synth st ctx expr = case expr of
   EHole  loc -> Left (Msg "Holes are not implemented")
   EType  loc l -> pure (Type l, Type (l + 1), noUses)
-  ELift  loc l -> pure (liftTy l, Type (l + 1), noUses)
+  ELift  loc l -> pure (Lift l, liftTy l, noUses)
   EName  loc qname -> lookupQualified st loc qname
   EVar   loc name -> maybe (lookupUnqualified st loc name) pure (lookupCtx ctx loc name)
   EApply loc _ f arg -> do
@@ -201,9 +201,10 @@ synth st ctx expr = case expr of
           hypType = ta,
           hypValue  = Nothing}
     (tb,kb,_) <- synth st (hyp : ctx) tb
-    checkSort (snd st) ctx la ka
-    checkSort (snd st) ctx lb kb
-    pure (Pi m name ta tb, kb, noUses)
+    l0 <- checkSort (snd st) ctx la ka
+    l1 <- checkSort (snd st) ctx lb kb
+    let kpi = Type (if l1 == 0 then 0 else max l0 l1)
+    pure (Pi m name ta tb, kpi, noUses)
 
 -- check an expression agains a given type and compute the corresponding core term
 check :: ElabState -> Context -> Expr -> Term -> Either Error (Term,Uses)

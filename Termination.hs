@@ -12,6 +12,45 @@ import Core
 import Reduction
 import Prettyprint
 
+-- idea: allow user to provide decreasing path explicitly?
+
+{-
+a distinct advantage of agda/idris style case-trees is that termination is guaranteed,
+even if it does not depend on a single argument, due the matching evaluating the full tree.
+to get similar behaviour in these fixpoints, we need a set of recargs and their lexical relation
+
+new equation compiler will require a new strategy, as match branches are no longer required
+to fully abstract over the constructor arguments.
+additionally, we would like to handle liftover arguments
+
+- variables referring to recursive calls can be tracked by depth, as recursive functions are
+  always in the bottom of the context
+- it might be useful to have a notion of a subterm stack as well as a subterm context,
+  to accommodate liftovers and the sort. it would work like so:
+  
+  1. at the beginning of the function, seeds are pushed to the stack.
+  2. when introducing a lambda, if there is a seed on the stack, pop it and push it to the env
+  3. in a case, if the eliminee is a seed, push subs on the stack for the constructor arguments
+  4. Pi appears to just introduce an irrelevant argument in the context
+  5. if a let contains a recursive call, reduce it to avoid shenanigans. Otherwise, proceed
+  6. Applications are interesting.
+    - first of all, the substack does not apply to the application arguments.
+    - if the application head is a lambda (it shouldn't be), push the seed values of the arguments
+      to the stack before proceeding. remember to collect rec_calls from the argumetns
+    - if the app head is a case, ditto
+    - if the app head is a var, one of 2 scenarios apply:
+      1. it is a recursive function, make a reccall.
+      2. it is a variable, acquire reccalls from arguments.
+    - it is a definition, acquire reccalls from arguments.
+      if an argument is an underapplied function, reduce and check again
+    - it is a fixpoint, acquire reccalls from arguments.
+      if an argument is an underapplied function, do the thing and the hoohaa
+
+useful things to have:
+- maximum arity of the function, to check underappliedness
+- an occurrence check for the recursive functions
+-}
+
 data Subdata
   = Recursive Int -- a recursive occurrence and its number
   | Seed Int -- an argument to the function and its number
@@ -46,7 +85,74 @@ type RecCall = (Int,[Maybe Int]) -- callee defno, [(caller argno, callee argno)]
   which caller argument it is derived from if so
 -}
 getRecursiveCalls :: Signature -> Context -> Term -> [RecCall]
-getRecursiveCalls sig ctx = getRecCalls ctx (fmap Recursive [0 .. length ctx - 1]) (Unknown 0) where
+getRecursiveCalls sig ctx = getRecCalls ctx (fmap Recursive [0 .. blockSize - 1]) (Unknown 0) where
+  blockSize = length ctx
+
+  isUnderApplied = undefined
+
+  getRecCalls2 :: Int -> Context -> [Subdata] -> Term -> [Subdata] -> [RecCall]
+  getRecCalls2 k ctx env t stack = let
+    (hd,args) = unrollApp t
+    smallerArgs = fmap (isSmaller ctx env t) args
+    argRecCalls = fmap (getRecCalls2 ctx env t (repeat Other)) args
+    in case hd of
+      Var n _ -> case env !! n of
+        Recursive m -> (m,smallerArgs) : recArgCalls
+        _ -> recArgCalls
+      Lam m name src dst ->
+        getRecCalls2
+          (k + 1)
+          (Hyp name src Nothing : ctx)
+          (head stack : env)
+          dst
+          (tail stack) ++ recArgCalls
+      Pi m namre src dst ->
+        getRecCalls2
+          (k + 1)
+          (Hyp name src Nothing : ctx)
+          (Other : env)
+          dst
+          (repeat Other) ++ recArgCalls
+      Let m name ta a b ->
+        (if occurs (blocksize + k) k a
+         then getRecCalls2 k ctx env (psubst [a] b) stack
+         else
+          getRecCalls2
+            (k + 1)
+            (Hyp name ta (Just a) : ctx)
+            (Other : env)
+            b
+            stack) ++ recArgCalls
+      Case mult eliminee motive branches -> let
+        
+        (obj_id,defno,data_argc) =  case unrollApp (whnf sig ctx (typeOf sig ctx eliminee)) of
+          (Top _ (Ind obj_id defno _), args) -> (obj_id,defno,length args)
+          (x,_) -> error (showTerm ctx x)
+        
+        (_,ctors) = sigData sig ! obj_id !! defno
+        
+        ctor_arities = fmap (\(_,ty) -> countDomains ty - data_argc) ctors
+        
+        elimSub = case unrollApp eliminee of
+          (Var n _, _) -> case env !! n of
+            Seed m -> Sub m
+            Sub m -> Sub m
+            _ -> Other
+          _ -> Other
+        
+        elimCall = getRecCalls2 k ctx env eliminee (repeat Other)
+        
+        branchCalls = concat (zipWith
+          (\arity branch ->
+            getRecCalls2 k ctx env branch (replicate arity elimSub ++ stack))
+          ctor_arities
+          branches)
+        
+        in elimCall : (branchCalls ++ recArgCalls)
+      Top _ (Def blockno height) -> undefined
+      Top _ (Fix blockno defno recparamno height uniparamno)
+      _ -> recArgCalls
+      
   
   -- check whether some match branches are all subterms of some seed
   isCaseSmaller :: [Maybe Int] -> Maybe Int
@@ -106,7 +212,9 @@ getRecursiveCalls sig ctx = getRecCalls ctx (fmap Recursive [0 .. length ctx - 1
         
         def = block !! defno
         
-        ctor_arities = fmap ((+ (-data_argc)) . countDomains . snd) (snd def)
+        (ctor_names,ctor_types) = unzip (snd def)
+        
+        ctor_arities = fmap (\(_,ty) -> countDomains ty - data_argc) (snd def)
         
         sub = (case unrollApp (whnf sig ctx eliminee) of
           (Var n _, _) -> case subs !! n of
@@ -120,7 +228,7 @@ getRecursiveCalls sig ctx = getRecCalls ctx (fmap Recursive [0 .. length ctx - 1
         unrollArgs ctx subs m (Lam _ name ta b) =
           unrollArgs (Hyp name ta Nothing : ctx) (sub : subs) (m - 1) b
             
-        regular_calls = concat (zipWith (unrollArgs ctx subs) ctor_arities branches)
+        regular_calls = trace (unwords ctor_names) $ concat (zipWith (unrollArgs ctx subs) ctor_arities branches)
         
         in regular_calls
       x -> []

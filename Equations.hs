@@ -14,37 +14,31 @@ import Debug.Trace
 import Prettyprint
 import Reduction
 
--- todo : add variables bound in the type to the constraints, for computing clearer motives
 data Problem = Problem {
-  problemConstraints :: [(Pattern,Mult,Term)],
+  problemConstraints :: [(Pattern,String,Mult,Term)],
   problemPatterns :: [Pattern],
   problemRhs :: Expr}
 
 mkProblem (pats,rhs) = Problem [] pats rhs
 
-mkCtx :: [(Pattern,Mult,Term)] -> Context
+mkCtx :: [(Pattern,String,Mult,Term)] -> Context
 mkCtx = fmap f where
-  f (PApp _ _ head [], m, ty) = Hyp head ty Nothing
-  f (_,m,ty) = Hyp "" ty Nothing
+  f (PApp _ _ head [], _, m, ty) = Hyp head ty Nothing
+  f (_,s,m,ty) = Hyp s ty Nothing
 
 showPattern (PAbsurd _) = "()"
-showPattern PIgnore = "_"
+showPattern (PIgnore _) = "_"
 showPattern (PApp _ _ hd []) = hd
 showPattern (PApp _ _ hd args) = "(" ++ hd ++ " " ++ unwords (fmap showPattern args) ++ ")"
 
 showProblem (Problem constrs pats rhs) = 
-  unwords (fmap (\(pat,m,ty) -> showPattern pat) (reverse constrs)) ++ " | " ++
+  unwords (fmap (\(pat,s,m,ty) -> showPattern pat) (reverse constrs)) ++ " | " ++
   unwords (fmap showPattern pats)
 
 {-
-
-number 1 also prompt the question on how to deal with forcing, unification and indices
-- due to forcing, variables deeper in the context may also need type updates
-- for free variable indices, a similar mechanism to simple pattern matching can be used
-- unifiable indexes will require help from equalities
-- alternatively, we can leave the updating of contexts strictly to equalities.
-  This might be a simpler solution for indexed types, and it might improve naive compilation
-  of caseTerms, but the caseTerms will be larger and more confusing.
+considering the distinct advantages of primitive case trees, also consider the challenges in
+making them work. In particular, it is hard to equip them with semantics for
+instantiating variables, deleting variables from contexts, reordering contexts, etcetera.
 -}
 
 -- check multiplicities
@@ -57,10 +51,10 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
     constrs = problemConstraints problem
     ctx' = mkCtx constrs ++ ctx
     
-    checkSplittable :: Either Error Term -> (Int,(Pattern,Mult,Term)) -> Either Error Term
-    checkSplittable noSplit (k, (pat, mult, ty)) = -- trace ("checkSplittable: " ++ show k) $
+    checkSplittable :: Either Error Term -> (Int,(Pattern,String,Mult,Term)) -> Either Error Term
+    checkSplittable noSplit (k, (pat, s, mult, ty)) = -- trace ("checkSplittable: " ++ show k) $
      case pat of
-      PIgnore -> noSplit
+      PIgnore _ -> noSplit
       PAbsurd loc -> checkEmpty k mult ty loc
       PApp loc _ hd args -> checkCtorPattern k mult loc hd args ty noSplit
     
@@ -82,12 +76,12 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
     checkCtorPattern k mult loc hd args ty noSplit =
       case unrollApp (whnf sig ctx' ty) of
         (Top _ (Ind blockno datano _), data_args) -> let
-          ctors = snd ((sigData sig ! blockno) !! datano)
+          ctors = snd (sigData sig ! blockno !! datano)
           in case L.lookup hd ctors of
             Nothing ->
               if Prelude.null args
               then noSplit
-              else Left (ConstructorMismatch loc ('#' : hd) ctx' ty)
+              else Left (ConstructorMismatch loc hd ctx' ty)
             Just _ -> splitAt k mult loc blockno datano ctors data_args
         _ ->
           if Prelude.null args
@@ -96,59 +90,58 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
     
     splitAt :: Int -> Mult -> Loc -> Int -> Int -> [(String,Term)] -> [Term] -> Either Error Term
     splitAt k mult loc blockno defno ctors args = do
-      let
-        (ctorNames,ctorTypes) = unzip ctors
-        ctorTypes' = fmap (instantiateCtor args) ctorTypes
-        tags = zip ctorNames (zip (fmap countDomains ctorTypes') [0..])
-      probs2 <- mapM (matchProblem k tags) probs
-      
-      let
-        brs =
-          fmap (\xs -> (fst (head xs), fmap snd xs)) $
-          groupBy ((==) `on` fst) $
-          sortOn fst probs2
-        brs2 = fmap (\(tag,prob) -> (tag, ctorNames !! tag, ctorTypes' !! tag, prob)) brs
-        checkCoverage tag =
-          maybe (Left (NonCoveringSplit loc (ctorNames !! tag))) (const (pure ())) (L.lookup tag brs)
-      
-      mapM_ checkCoverage [0 .. length ctors - 1]
-      
-      let
-        motive = Core.lift (k + 1) (computeMotive k constrs returnType)
-        
-      branches <- mapM (computeBranch k mult args motive blockno defno) brs2
-        
-      let
-        cargs = reverse (fmap (flip Var False) [0 .. k - 1])
-        cased = Case mult (Var k False) motive branches
+      let (ctorNames,ctorTypes) = unzip ctors
+          argc = length args
+          matchInfo = zipWith3 (\name tag ty -> (name,(countDomains ty - argc,tag))) ctorNames [0..] ctorTypes
+      probs2 <- mapM (matchProblem k matchInfo) probs
+      let brs =
+            fmap (\xs -> (fst (head xs), fmap snd xs)) $
+            groupBy ((==) `on` fst) $
+            sortOn fst probs2
+          checkCovered tag = maybe
+            (Left (NonCoveringSplit loc (ctorNames !! tag)))
+            (const (pure ()))
+            (L.lookup tag brs)
+      mapM_ checkCovered [0 .. length ctors - 1]
+      let motive = Core.lift (k + 1) (computeMotive k constrs returnType)
+      branches' <- zipWithM (computeBranch k mult args motive blockno defno) brs ctors
+      let cargs = reverse (fmap (flip Var False) [0 .. k - 1])
+          cased = Case mult (Var k False) motive branches'
       pure (mkApp cased cargs)
       
-    computeBranch :: Int -> Mult -> [Term] -> Term -> Int -> Int -> (Int,String,Term,[Problem]) -> Either Error Term
-    computeBranch k mult args motive blockno datano (tag, ctorName, ctorType, problems) =
+    computeBranch :: Int -> Mult -> [Term] -> Term -> Int -> Int -> (Int,[Problem]) -> (String,Term) -> Either Error Term
+    computeBranch k mult args motive blockno datano (tag,problems) (ctorName,ctorType) =
+      trace ("split " ++ show k ++ ", branch " ++ show tag ++ ":") $
+      trace (unlines (fmap showProblem newProblems)) $
+      trace ("new type:") $
+      trace (showTerm ctx newType) $
+      trace ""
       compileEquations st ctx newProblems newType where
         newProblems = fmap (pushConstrs k) problems
         
         pushConstrs k (Problem constrs pats rhs) = Problem constrs' pats' rhs
           where
-            (subsequent, (PApp _ _ _ args, m, ty) : previous) = L.splitAt k constrs
-            pats' = args ++ L.foldl (\acc (pat,_,_) -> pat : acc) pats subsequent
-            constrs' = (fmap (\(_,m,ty) -> (PIgnore,m,ty)) subsequent) ++ (PIgnore,m,ty) : previous 
+            (subsequent, (PApp loc _ _ args, s, m, ty) : previous) = L.splitAt k constrs
+            pats' = args ++ L.foldl (\acc (pat,_,_,_) -> pat : acc) pats subsequent
+            constrs' = (fmap (\(_,s,m,ty) -> (PIgnore loc,s,m,ty)) subsequent) ++ (PIgnore loc,s,m,ty) : previous 
         
-        newType = computeBranchType mult (length args) motive (ctorName,blockno,datano,tag,ctorType)
+        -- args may need to be lifted over the thingies
+        newType = computeBranchType mult blockno datano
+          (fmap (Core.lift (k + 1)) args) motive tag (ctorName,ctorType)
       
-    computeMotive :: Int -> [(Pattern,Mult,Term)] -> Term -> Term
-    computeMotive 0 ((_,_,ty):cs) = Lam Many "" ty
-    computeMotive n ((_,_,ty):cs) = Pi Many "" ty . computeMotive (n - 1) cs
+    computeMotive :: Int -> [(Pattern,String,Mult,Term)] -> Term -> Term
+    computeMotive 0 ((_,s,_,ty):cs) = Lam Many s ty
+    computeMotive n ((_,s,m,ty):cs) = computeMotive (n - 1) cs . Pi m s ty
     computeMotive _ [] = error "computeMotive"
     
     matchProblem :: Int -> [(String,(Int,Int))] -> Problem -> Either Error (Int,Problem)
     matchProblem k ctors problem @ (Problem constrs pats rhs) =
       case constrs !! k of
-        (PIgnore,_,_) -> Left (Msg "non-strict split")
-        (PAbsurd loc,_,_) -> Left (RefuteNonEmpty ctx' loc (Type 0))
-        (PApp loc nloc hd args,_,_) ->
+        (PIgnore _,_,_,_) -> Left (Msg "non-strict split")
+        (PAbsurd loc,_,_,_) -> Left (RefuteNonEmpty ctx' loc (Type 0))
+        (PApp loc nloc hd args,_,_,_) ->
           case L.lookup hd ctors of
-            Nothing -> Left (ConstructorMismatch loc ('$' : hd) ctx' (Core.lift (k + 1) (hypType (ctx' !! k)))) 
+            Nothing -> Left (ConstructorMismatch loc hd ctx' (Core.lift (k + 1) (hypType (ctx' !! k)))) 
             Just (argc,tag) ->
               if argc == length args
               then pure (tag, problem)
@@ -163,12 +156,16 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
         case whnf sig ctx' returnType of
           Pi mult name src dst -> let
             
+            name'
+              | Prelude.null name = "%x" ++ show (length ctx')
+              | otherwise = '%' : name
+            
             introProblem (Problem constrs (pat:pats) rhs) = 
-              Problem ((pat,mult,src):constrs) pats rhs
+              Problem ((pat,name',mult,src):constrs) pats rhs
             
             probs2 = fmap introProblem probs
             
-            in Lam mult name src <$> compileEquations st ctx probs2 dst
+            in Lam mult name' src <$> compileEquations st ctx probs2 dst
           _ -> Left IntroNonFunction
       | otherwise = Left UnevenPatterns
 

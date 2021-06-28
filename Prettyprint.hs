@@ -9,66 +9,132 @@ import Data.List as L
 import Data.Map as M
 import Control.Monad.RWS
 
-dbiName :: Int -> Context -> String
+{-
+interesting flags:
+- print flatly
+- show lambda domains
+- show case motives
+-}
+type SE = (Bool,Bool,Int)
+
+dbiName :: Int -> Context -> ShowS
 dbiName n ctx = f n ctx where
-  f m [] = '$' : show n
-  f 0 (Hyp "" _ _:ctx) = '$' : show n
-  f 0 (Hyp name _ _:ctx) = name
+  f m [] = ('$' :) . showsPrec 0 n
+  f 0 (Hyp "" _ _:ctx) = ('$' :) . showsPrec 0 n
+  f 0 (Hyp name _ _:ctx) = (name ++)
   f m (_ : ctx) = f (m - 1) ctx
 
-embrace :: String -> String
-embrace x = '(' : x ++ ")"
+indent :: SE -> ShowS
+indent (True,_,n) = ('\n':) . (replicate n ' ' ++)
+indent (False,_,n) = id
 
-bracePi :: Term -> String -> String
+embrace :: ShowS -> ShowS
+embrace x = ('(' :) . x . (')':)
+
+bracePi :: Term -> ShowS -> ShowS
 bracePi Pi {} = embrace
 bracePi _     = id
 
-braceApp :: Term -> String -> String
-braceApp App {}  = embrace
-braceApp Lam {}  = embrace
-braceApp Pi {}   = embrace
-braceApp Case {} = embrace
-braceApp Let {}  = embrace
-braceApp _       = id
+braceFun :: Term -> ShowS -> ShowS
+braceFun Lam {}  = embrace
+braceFun Pi {}   = embrace
+braceFun Case {} = embrace
+braceFun Let {}  = embrace
+braceFun _       = id
 
-showArg :: Context -> Term -> String
-showArg  ctx t = braceApp t (showTerm  ctx t)
+braceArg :: Term -> ShowS -> ShowS
+braceArg App {}  = embrace
+braceArg Lam {}  = embrace
+braceArg Pi {}   = embrace
+braceArg Case {} = embrace
+braceArg Let {}  = embrace
+braceArg _       = id
 
-showLam :: Context -> String -> Term -> String
-showLam  ctx acc (Lam m name ta tb) = showLam  (Hyp name ta Nothing:ctx) (acc ++ showDomain  ctx m name ta) tb
-showLam  ctx acc tb = "\\" ++ acc ++ ", " ++ showTerm  ctx tb
+showApp :: Context -> SE -> Term -> ShowS
+showApp ctx se t = braceFun t (showSTerm ctx se t)
 
-showPi :: Context -> String -> Term -> String
-showPi  ctx acc (Pi m name ta tb) = showPi  (Hyp name ta Nothing:ctx) (acc ++ showDomain  ctx m name ta) tb
-showPi  ctx acc tb = "Pi " ++ acc ++ ", " ++ showTerm  ctx tb
+showArg :: Context -> SE -> Term -> ShowS
+showArg ctx se t = braceArg t (showSTerm ctx se t)
 
-showMult :: Mult -> String
-showMult Zero = "0 "
-showMult One = "1 "
-showMult _ = ""
+showPi :: Context -> SE -> Term -> ShowS -> ShowS
+showPi ctx se (Pi m name ta tb) acc =
+  showPi (Hyp name ta Nothing:ctx) se tb (acc . showPiDomain ctx se m name ta)
+showPi ctx se tb acc = ("Π" ++) . acc . (", " ++) . showSTerm ctx se tb
 
-showDomain :: Context -> Mult -> String -> Term -> String
-showDomain  ctx m n t
-  | Prelude.null n = '(' : showMult m ++ "_ : " ++ showTerm  ctx t ++ ")"
-  | otherwise = '(' : showMult m ++ n ++ " : " ++ showTerm  ctx t ++ ")"
+showLam :: Context -> SE -> Term -> ShowS -> ShowS
+showLam ctx se (Lam m name ta tb) acc =
+  showLam (Hyp name ta Nothing:ctx) se tb (acc . showDomain ctx se m name ta) 
+showLam ctx se tb acc = ("λ" ++) . acc . (", " ++) . showSTerm ctx se tb
 
-showTerm :: Context -> Term -> String
-showTerm  ctx (Type 0)     = "Prop"
-showTerm  ctx (Type 1)     = "Type"
-showTerm  ctx (Type l)     = "Type " ++ show (l - 1)
-showTerm  ctx (Var n _)    = dbiName n ctx
-showTerm  ctx (Top s _)    = s
-showTerm  ctx app @ App {} = unwords (fmap (showArg  ctx) (f : xs)) where (f,xs) = unrollApp app
-showTerm  ctx pi  @ Pi {}  = showPi  ctx [] pi
-showTerm  ctx lam @ Lam {} = showLam  ctx [] lam
-showTerm  ctx (Let m name ta a b) =
-  "let " ++ name ++ " = " ++ showTerm ctx a ++ " in " ++ showTerm ctx b
-showTerm  ctx (Case m eliminee motive branches) =
-  "case " ++ showTerm ctx eliminee ++ " return " ++ showTerm ctx motive ++ " of " ++ intercalate "; " (fmap (showTerm ctx) branches)
+showLet :: Context -> SE -> Term -> ShowS -> ShowS
+showLet ctx se t acc = case t of
+  Let m name ta a body ->
+    showLet (Hyp name ta (Just a) : ctx) se body
+      (acc .
+       indent se .
+       (name ++) .
+       (" : " ++) .
+       showSTerm ctx se ta .
+       (" = " ++) .
+       showSTerm ctx se a)
+  t -> ("let" ++) . acc . indent se . ("in " ++) . showSTerm ctx se t
+
+showMult :: Mult -> ShowS
+showMult Zero = ("0 " ++)
+showMult One = ("1 " ++)
+showMult _ = id
+
+showPiDomain :: Context -> SE -> Mult -> String -> Term -> ShowS
+showPiDomain ctx se m n t
+  | Prelude.null n = ('(' :) . showMult m . ("_ : " ++) . showSTerm ctx se t . (')':)
+  | otherwise = ('(' :) . showMult m . (n ++) . (" : " ++) . showSTerm ctx se t . (')':)
+
+showDomain :: Context -> SE -> Mult -> String -> Term -> ShowS
+
+showDomain ctx (b0,b1,i) m n t
+  | b1 = ('(':) . showMult m . showName . (" : " ++) . showSTerm ctx (b0,b1,i) t . (')':)
+  | otherwise = (' ':) . showName
+  where
+    showName
+      | Prelude.null n = ('_':)
+      | otherwise = (n ++)
+
+
+showTerm ctx t = showSTerm ctx (True,True,0) t ""
+
+showSTerm :: Context -> SE -> Term -> String -> String
+showSTerm ctx se @ (b0,b1,i) t = case t of
+  Type 0 -> ("Prop" ++)
+  Type 1 -> ("Type" ++)
+  Type l -> ("Type " ++) . showsPrec 0 (l - 1)
+  Lift l -> ("Lift " ++) . showsPrec 0 l
+  Var n _ -> dbiName n ctx
+  Top s _ -> (s ++)
+  App fun arg -> showApp ctx se fun . (' ':) . showArg ctx (b1,False,i) arg
+  Case mult eliminee motive branches ->
+    let se' j = (b0,False,i + j) in
+      indent (se' 2).
+      ("case " ++) .
+      (showSTerm ctx (se' 6) eliminee) .
+      (" return " ++) .
+      (showSTerm ctx (se' 6) motive) .
+      (" of" ++) .
+      L.foldl (\acc branch -> acc .  indent (se' 4) . showSTerm ctx (se' 4) branch) id branches 
+  pi @ Pi {} -> showPi ctx se pi id
+  lam @ Lam {} -> showLam ctx se lam id
+  lt @ Let {} -> showLet ctx se lt id
+
+showSContext :: Context -> ShowS
+showSContext [] = id
+showSContext (Hyp name ty _ : ctx) =
+  showSContext ctx .
+  (name ++) .
+  (" : " ++) .
+  showSTerm ctx (True,True,length name + 3) ty .
+  ('\n':)
 
 showContext :: Context -> String
-showContext  [] = ""
-showContext  (Hyp name ty _ :ctx) = showContext  ctx ++ name ++ " : " ++ showTerm  ctx ty ++ "\n"
+showContext ctx = showSContext ctx ""
 
 errHeader :: Loc -> Context -> String
 errHeader loc ctx = show loc ++ "\nin context:\n" ++ showContext ctx
@@ -77,6 +143,8 @@ showQName = intercalate "."
 
 showError :: Error -> String
 showError e = case e of
+  Msg s -> s
+  
   TypeError ctx loc expected term given ->
     errHeader loc ctx ++
     "\ngot term:\n" ++
@@ -113,6 +181,16 @@ showError e = case e of
   UndefinedName loc qname ->
     show loc ++
     "\nundefined name: " ++ showQName qname
+  AmbiguousName loc name ->
+    show loc ++
+    "\nambiguous name: " ++ name
+  
+  DeclWithoutBody loc ->
+    show loc ++ "\ndeclaration without body"
+  BodyWithoutDecl loc ->
+    show loc ++ "\ndefinition without type signature"
+    
+  
     
   RefuteNonEmpty ctx loc t ->
     errHeader loc ctx ++
@@ -128,7 +206,9 @@ showError e = case e of
   IntroNonFunction -> "intro non function"
   UnevenPatterns -> "uneven patterns"
   
-  Msg s -> s
+  InductiveProp loc ->
+    show loc ++ "\ndatatypes may not inhabit prop"
+  
   
   _ -> "some error"
 

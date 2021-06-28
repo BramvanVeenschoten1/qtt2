@@ -51,7 +51,7 @@ insertName (qname,loc,ref) = do
   (shorts,longs) <- gets internalNames
   case M.lookup qname longs of
     Nothing -> do
-      traceM (showQName qname ++ " defined\n")
+      traceM (showQName qname ++ " defined")
       
       modify (\st -> st {
         internalNames =
@@ -171,12 +171,19 @@ checkFunctions defs = do
       
       insertName (qname,loc,ref)
       
+      traceM (showTerm [] body)
+      traceM ""
+      
       modify (\st -> st {
         nextBlock = block + 1,
         signature = Signature
           (sigFixs (signature st))
           (M.insert block (ty,body) (sigDefs (signature st)))
           (sigData (signature st))})
+      
+      sig <- gets signature
+      unless (convertible sig [] False (typeOf sig [] body) ty)
+        (error ("ill-formed function: " ++ head defnames ++ "\n" ++ showTerm [] body))
     _ -> do
       
       rec_args <- S.lift $ maybe
@@ -186,10 +193,13 @@ checkFunctions defs = do
       let makeRef defno rec_arg = Fix block defno rec_arg height 0    
           refs = zipWith makeRef [0..] rec_args
           tops = zipWith Top (fmap showQName qnames) refs
-          typed_bodies = zip tys (fmap (psubst tops) bodies)
+          bodies' = fmap (psubst tops) bodies
+          typed_bodies = zip tys bodies'
           name_loc_refs = zip3 qnames deflocs refs
       
       mapM_ insertName name_loc_refs
+      
+      traceM (unlines (fmap (showTerm []) (fmap snd typed_bodies))) 
       
       modify (\st -> st {
         nextBlock = block + 1,
@@ -197,6 +207,12 @@ checkFunctions defs = do
           (M.insert block typed_bodies (sigFixs (signature st)))
           (sigDefs (signature st))
           (sigData (signature st))})
+      
+      sig <- gets signature
+      sequence_ (zipWith3 (\name ty body ->
+        unless (convertible sig [] False (typeOf sig [] body) ty)
+          (error ("ill-formed function: " ++ head defnames ++ "\n" ++ showTerm [] body)))
+        defnames tys bodies')
 
 checkData :: [(Loc, Name, [Param], Expr, [Ctor])] -> DeclElab ()
 checkData defs = do

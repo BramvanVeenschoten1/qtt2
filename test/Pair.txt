@@ -1,0 +1,21 @@
+module Pair
+
+import
+  Prelude
+  Bool
+
+data Pair (a b : Type): Type where
+  mk : a -o b -o Pair a b
+
+fst : Pi (a b : Type), Pair a b -> a
+fst a b (mk x y) = x
+
+snd : Pi (a b : Type), Pair a b -> b
+snd a b (mk x y) = y
+
+eta : Pi (a b : Type)(x : Pair a b), Eq (Pair a b) x (mk a b (fst a b x) (snd a b x))
+eta a b (mk x y) = Refl (Pair a b) (mk a b x y)
+
+foo : Pi (a b : Type), Pair a b -> Bool -> Top
+foo a b _ true = tt
+foo a b (mk x y) false = tt

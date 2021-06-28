@@ -1,0 +1,10 @@
+module Fin
+
+import
+  Prelude
+  Nat
+  
+data Fin (n : Nat) : Type where
+  zero : Pi {0 m : Nat}, Eq Nat n (succ m) => Fin n
+  succ : Pi {0 m : Nat}, Fin m -o Eq Nat n (succ m) => Fin n
+

@@ -31,7 +31,7 @@ data Plicity
 data Ref
   = Ind !Int !Int !Int         -- blockno, defno, uniparamno
   | Con !Int !Int !Int !Int     -- blockno, defno, ctortag, paramno
-  | Fix !Int !Int !Int !Int !Int -- blockno, defno, recparamno, height, uniparamno
+  | Fix !Int !Int !Int !Int !Int -- blockno, defno, recparamno, height, uniparamno uniparamno
   | Def !Int !Int             -- declno, height
   deriving Eq
 
@@ -70,12 +70,12 @@ liftTy l =
     Pi Zero "x" (Var 0 False) $
     Pi Zero "y" (Var 1 False) $
     Pi Zero ""  (
-      Pi Zero "P" (Pi Many "" (Var 4 False) (Type 0)) $
+      Pi Zero "P" (Pi Many "" (Var 2 False) (Type 0)) $
       Pi One  ""  (App (Var 0 False) (Var 2 False)) $
-                  (App (Var 1 False) (Var 3 False))) $
+                  (App (Var 1 False) (Var 2 False))) $
     Pi Zero "P" (Pi Many "" (Var 3 False) (Type l)) $
     Pi One  ""  (App (Var 0 False) (Var 3 False)) $
-                (App (Var 1 False) (Var 4 False))
+                (App (Var 1 False) (Var 3 False))
 
 fold :: (Hyp -> k -> k) -> k -> (k -> Term -> a -> a) -> Term -> a -> a
 fold push ctx f t = case t of
@@ -132,21 +132,21 @@ dropDomains _ _ = undefined
 instantiateCtor :: [Term] -> Term -> Term
 instantiateCtor params = psubst (reverse params) . dropDomains (length params)
 
-computeBranchType :: Mult -> Int -> Term -> (String,Int,Int,Int,Term) -> Term
-computeBranchType m argc motive (name,blockno,datano,ctorno,ctorType) = f 0 (Core.lift argc ctorType) where
-  f k (Pi m' name src dst) = Pi (times m m') name src (f (k + 1) dst)
-  f k t =
-    App
-      (Core.lift k motive)
-      (mkApp
-        (Top name (Con blockno datano ctorno argc))
-        (fmap (flip Var False) (reverse [0 .. k - 1])))
+computeBranchType :: Mult -> Int -> Int -> [Term] -> Term -> Int -> (String,Term) -> Term
+computeBranchType mult blockno datano args motive ctorno (name,ctorType) =
+  f 0 (instantiateCtor args ctorType) where
+    argc = length args
+    f k (Pi m' name src dst) = Pi (times mult m') name src (f (k + 1) dst)
+    f k t = App (Core.lift k motive) (mkApp
+          (Top name (Con blockno datano ctorno argc))
+          (fmap (Core.lift k) args ++
+          fmap (flip Var False) (reverse [0 .. k - 1])))
   
 typeOfRef :: Signature -> Ref -> Term
 typeOfRef sig ref = case ref of
-  Ind blockno defno _ -> fst ((sigData sig ! blockno) !! defno)
-  Con blockno defno ctorno _ -> snd (snd ((sigData sig ! blockno) !! defno) !! ctorno)
-  Fix blockno defno _ _ _ -> fst ((sigFixs sig ! blockno) !! defno)
+  Ind blockno defno _ -> fst (sigData sig ! blockno !! defno)
+  Con blockno defno ctorno _ -> snd (snd (sigData sig ! blockno !! defno) !! ctorno)
+  Fix blockno defno _ _ _ -> fst (sigFixs sig ! blockno !! defno)
   Def blockno _ -> fst (sigDefs sig ! blockno)
 
 heightOf :: Term -> Int
@@ -156,6 +156,12 @@ heightOf t = f () t 0 where
   f _ (Top _ (Def _ h)) = max h
   f _ t = Core.fold (const id) () f t
 
+occurs :: Int -> Int -> Term -> Bool
+occurs deep shallow t = f 0 t False where
+  f k (Var n _)
+    | n < deep + k && n >= shallow + k = const True
+    | otherwise = id
+  f k t = Core.fold (const (+1)) k f t
 
 
 

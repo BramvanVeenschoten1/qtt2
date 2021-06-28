@@ -3,7 +3,7 @@ module Parser where
 import Lexer hiding (keywords, puncts)
 import Core
 
-import Control.Applicative ( Alternative(some) )
+import Control.Applicative
 import Data.List ()
 import Data.Function ()
 import Data.Array.Unboxed ( listArray )
@@ -18,14 +18,8 @@ type Ctor = (Loc, String, Expr)
 
 data Pattern
   = PAbsurd Loc
-  | PIgnore
+  | PIgnore Loc
   | PApp Loc Loc String [Pattern]
-
-instance Show Pattern where
-  show PIgnore = "_"
-  show (PApp _ _ x xs) = x ++ " " ++ unwords (fmap showArg xs) where
-    showArg p @ PApp {} = "(" ++ show p ++ ")"
-    showArg p = show p
 
 type Module = (String,[String],[Decl])
 
@@ -123,7 +117,8 @@ parseMult = do
 annotParam :: Plicity-> Parser [Param]
 annotParam p = do
   m  <- parseMult
-  bs <- some (withLoc (expectSymbol "name in parameter list"))
+  bs <- some (withLoc ((expect "_" "" >> pure "") <|>
+          expectSymbol "name in parameter list"))
   ty <- annot
   pure (fmap (\(nloc,name) -> (nloc,p,m,name,ty)) bs)
 
@@ -134,6 +129,7 @@ param = do
     Pct "(" -> token *> annotParam Explicit <* f ")"
     Pct "{" -> token *> annotParam Implicit <* f "}"
     Pct "[" -> token *> annotParam Class <* f "]"
+    Pct "_" -> annotParam Explicit
     _ -> annotParam Explicit
   where f close = expect close ("closing '" ++ close ++ "' after parameter")
 
@@ -145,6 +141,7 @@ params = do
     Pct "("  -> someParams
     Pct "{"  -> someParams
     Pct "["  -> someParams
+    Pct "_"  -> someParams 
     _ -> pure []
   
 someParams :: Parser [Param]
@@ -332,7 +329,7 @@ parseClosedPattern = do
       app <- parseAppPattern
       expect ")" "closing ')' after pattern"
       pure app
-    Pct "_" -> pure PIgnore
+    Pct "_" -> pure (PIgnore loc)
     Symbol x -> do
       pure (PApp loc loc x [])
 

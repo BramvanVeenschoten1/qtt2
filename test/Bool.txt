@@ -1,0 +1,45 @@
+module Bool
+
+import
+  Prelude
+
+data Bool : Type where
+  true  : Bool
+  false : Bool
+
+and : Bool -> Bool -> Bool
+and true x = x
+and false x = false
+
+or : Bool -> Bool -> Bool
+or true x = true
+or false x = x
+
+not : Bool -> Bool
+not true = false
+not false = true
+
+double_negate : Pi x : Bool, Eq Bool x (not (not x))
+double_negate true = Refl Bool true
+double_negate false = Refl Bool false
+
+eq : Bool -> Bool -> Bool
+eq true  x = x
+eq false x = not x
+
+b2t : Bool -> Prop
+b2t true = Top
+b2t false = Bottom
+
+refl : Pi b : Bool, b2t (eq b b)
+refl true = tt
+refl false = tt
+
+dec_left : Pi (x y : Bool), b2t (eq x y) -> Eq Bool x y
+dec_left true true e = Refl Bool true
+dec_left false false e = Refl Bool false
+dec_left true false e = liftBottom e (Eq Bool true false)
+dec_left false true e = liftBottom e (Eq Bool false true)
+
+dec_right : Pi (x y : Bool), Eq Bool x y -> b2t (eq x y)
+dec_right x y e = e (\z, b2t (eq x z)) (refl x)
