@@ -4,7 +4,7 @@ import Core
 import Prettyprint
 import Data.Function
 import Data.Map as M
-import Debug.Trace
+--import Debug.Trace
 import Data.List
 import Data.Maybe
 
@@ -112,6 +112,7 @@ convertible sig ctx flag t0 t1 =
   
   alpha ctx flag (Type l0) (Type l1) = l0 == l1 || (not flag && l0 <= l1)
   alpha ctx flag (Var n0 _) (Var n1 _) = n0 == n1
+  alpha ctx flag (Lift l0) (Lift l1) = l0 == l1
   alpha ctx flag (Lam _ name src0 dst0) (Lam _ _ _ dst1) =
     convertible sig (Hyp name src0 Nothing : ctx) flag dst0 dst1
   alpha ctx flag (Pi m0 name src0 dst0) (Pi m1 _ src1 dst1) =

@@ -171,8 +171,8 @@ checkFunctions defs = do
       
       insertName (qname,loc,ref)
       
-      traceM (showTerm [] body)
-      traceM ""
+      --traceM (showTerm [] body)
+      --traceM ""
       
       modify (\st -> st {
         nextBlock = block + 1,
@@ -199,7 +199,7 @@ checkFunctions defs = do
       
       mapM_ insertName name_loc_refs
       
-      traceM (unlines (fmap (showTerm []) (fmap snd typed_bodies))) 
+      --traceM (unlines (fmap (showTerm []) (fmap snd typed_bodies))) 
       
       modify (\st -> st {
         nextBlock = block + 1,
@@ -308,10 +308,10 @@ checkData defs = do
         extended_arities
         ctor_names
         ctor_instances
-  when (names == ["Acc"]) $ do
-    traceM (unlines (concat (fmap (fmap (showTerm [])) ctor_tys)))
-    traceM (unlines (concat (fmap (fmap (showTerm [])) abstracted_ctors)))
-    traceM (unlines (concat (fmap (fmap (showTerm [])) ctor_instances)))
+  --when (names == ["Acc"]) $ do
+  --  traceM (unlines (concat (fmap (fmap (showTerm [])) ctor_tys)))
+  --  traceM (unlines (concat (fmap (fmap (showTerm [])) abstracted_ctors)))
+  --  traceM (unlines (concat (fmap (fmap (showTerm [])) ctor_instances)))
   
   --traceM (unlines (concat (fmap (fmap (showTerm [])) ctor_instances)))
   

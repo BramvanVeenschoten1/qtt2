@@ -10,7 +10,7 @@ import Data.List as L
 import Data.Maybe
 import Data.Function
 import Control.Monad
-import Debug.Trace
+--import Debug.Trace
 import Prettyprint
 import Reduction
 
@@ -111,11 +111,11 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
       
     computeBranch :: Int -> Mult -> [Term] -> Term -> Int -> Int -> (Int,[Problem]) -> (String,Term) -> Either Error Term
     computeBranch k mult args motive blockno datano (tag,problems) (ctorName,ctorType) =
-      trace ("split " ++ show k ++ ", branch " ++ show tag ++ ":") $
-      trace (unlines (fmap showProblem newProblems)) $
-      trace ("new type:") $
-      trace (showTerm ctx newType) $
-      trace ""
+      --trace ("split " ++ show k ++ ", branch " ++ show tag ++ ":") $
+      --trace (unlines (fmap showProblem newProblems)) $
+      --trace ("new type:") $
+      --trace (showTerm ctx newType) $
+      --trace ""
       compileEquations st ctx newProblems newType where
         newProblems = fmap (pushConstrs k) problems
         

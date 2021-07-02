@@ -21,6 +21,9 @@ And_right a b x = x b (\x y, y)
 And_intro : Pi (a b : Prop), a -> b -> And a b
 And_intro a b x y _ f = f x y
 
+And_rec : Pi (a b : Prop)(c : Type), And a b -> (a -> b -> c) -> c
+And_rec a b c x f = f (And_left a b x) (And_right a b x)
+
 Or : Prop -> Prop -> Prop
 Or a b = Pi c : Prop, (a -> c) -> (b -> c) -> c
 
@@ -51,11 +54,49 @@ trans a x y z e1 e2 = e2 (Eq a x) e1
 cong : Pi (a b : Type)(x y : a)(f : a -> b), Eq a x y -> Eq b (f x) (f y)
 cong a b x y f e = e (\z, Eq b (f x) (f z)) (Refl b (f x))
 
+J : Pi (a : Type)(x y : a)(e : Eq a x y)(P : Pi z : a, Eq a x z -> Type), P x (Refl a x) -> P y e
+J a x y e P px = Lift 0 a x y e (\z, Pi e : Eq a x z, P z e) (\_, px) e
+
+K : Pi (a : Type)(x : a)(e : Eq a x x)(P : Eq a x x -> Type), P (Refl a x) -> P e
+K a x e P px = px
+
+{-
+  Consider heterogeneous equalities:
+  pros:
+  - simpler types for no-confusion, as well as functions like dependent congruence
+  cons:
+  - instantiating variables during unifications appears to be more difficult
+    => is it though? a few casts need to be added, but the procedure is essentially the same
+    => The equality itself needs to be cast over, thats all
+    => Heteq was the right solution all along
+    
+  the essential difference between matching on datatypes and eq is that the instantiated variable
+  may not be dbi 0 in the current context, and the computation of the motive may require some lifting.
+  splitting on indexed data may be done simply by introducing equalities, or efficiently by computing
+  the motive the same way when possible (indices are free variables)
+-}
+
+Heq : Pi (a b : Type), a -> b -> Prop
+Heq a b x y = Pi (0 p : Pi c : Type, c -> Prop), p a x -o p b y
+
+hrefl : Pi (a : Type)(x : a), Heq a a x x
+hrefl a x p px = px
+
+hom : Pi (a : Type)(x y : a), Heq a a x y -> Eq a x y
+hom a x y e =
+  let Teq : Type -> Type -> Prop =
+    \a b, Pi (0 P : Type -> Prop), P a -o P b in
+  let TRefl : Pi a : Type, Teq a a =
+    \a p px, px in
+  let cast : Pi (a b : Type), Teq a b -> a -> b =
+    \a b e, Lift 1 Type a b e (\x,x) in
+    e (\c z, Pi e : Teq c a, Eq a x (cast c a e z)) (\e, Refl a x) (TRefl a)
+
+EqualityIrrelevance : Pi (a : Type)(x : a)(e : Eq a x x), Eq a (Lift 0 a x x e (\_, a) x) x
+EqualityIrrelevance a x e = Refl a x
+
 proofIrrelevance : Pi (a : Prop)(x y : a), Eq a x y
 proofIrrelevance a x y = Refl a x
-
-K : Pi (a : Type)(x : a)(e : Eq a x x), Eq a (Lift 0 a x x e (\_, a) x) x
-K a x e = Refl a x
   
 liftBottom : Bottom => Pi (0 a : Type), a
 liftBottom x a = Lift 1 Type Bottom a (x (Pi (0 p : Type -> Prop), p Bottom -o p a)) (\x, x) x

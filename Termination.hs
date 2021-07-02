@@ -7,7 +7,7 @@ import Data.Maybe
 import Control.Monad
 import Control.Applicative
 
-import Debug.Trace
+--import Debug.Trace
 import Core
 import Reduction
 import Prettyprint
@@ -89,7 +89,7 @@ getRecursiveCalls sig ctx = getRecCalls ctx (fmap Recursive [0 .. blockSize - 1]
   blockSize = length ctx
 
   isUnderApplied = undefined
-
+  {-
   getRecCalls2 :: Int -> Context -> [Subdata] -> Term -> [Subdata] -> [RecCall]
   getRecCalls2 k ctx env t stack = let
     (hd,args) = unrollApp t
@@ -97,22 +97,22 @@ getRecursiveCalls sig ctx = getRecCalls ctx (fmap Recursive [0 .. blockSize - 1]
     argRecCalls = fmap (getRecCalls2 ctx env t (repeat Other)) args
     in case hd of
       Var n _ -> case env !! n of
-        Recursive m -> (m,smallerArgs) : recArgCalls
-        _ -> recArgCalls
+        Recursive m -> (m,smallerArgs) : argRecCalls
+        _ -> argRecCalls
       Lam m name src dst ->
         getRecCalls2
           (k + 1)
           (Hyp name src Nothing : ctx)
           (head stack : env)
           dst
-          (tail stack) ++ recArgCalls
+          (tail stack) ++ argRecCalls
       Pi m namre src dst ->
         getRecCalls2
           (k + 1)
           (Hyp name src Nothing : ctx)
           (Other : env)
           dst
-          (repeat Other) ++ recArgCalls
+          (repeat Other) ++ argRecCalls
       Let m name ta a b ->
         (if occurs (blocksize + k) k a
          then getRecCalls2 k ctx env (psubst [a] b) stack
@@ -122,7 +122,7 @@ getRecursiveCalls sig ctx = getRecCalls ctx (fmap Recursive [0 .. blockSize - 1]
             (Hyp name ta (Just a) : ctx)
             (Other : env)
             b
-            stack) ++ recArgCalls
+            stack) ++ argRecCalls
       Case mult eliminee motive branches -> let
         
         (obj_id,defno,data_argc) =  case unrollApp (whnf sig ctx (typeOf sig ctx eliminee)) of
@@ -148,11 +148,11 @@ getRecursiveCalls sig ctx = getRecCalls ctx (fmap Recursive [0 .. blockSize - 1]
           ctor_arities
           branches)
         
-        in elimCall : (branchCalls ++ recArgCalls)
+        in elimCall : (branchCalls ++ argRecCalls)
       Top _ (Def blockno height) -> undefined
-      Top _ (Fix blockno defno recparamno height uniparamno)
-      _ -> recArgCalls
-      
+      Top _ (Fix blockno defno recparamno height uniparamno) -> undefined
+      _ -> argRecCalls
+  -}    
   
   -- check whether some match branches are all subterms of some seed
   isCaseSmaller :: [Maybe Int] -> Maybe Int
@@ -228,7 +228,8 @@ getRecursiveCalls sig ctx = getRecCalls ctx (fmap Recursive [0 .. blockSize - 1]
         unrollArgs ctx subs m (Lam _ name ta b) =
           unrollArgs (Hyp name ta Nothing : ctx) (sub : subs) (m - 1) b
             
-        regular_calls = trace (unwords ctor_names) $ concat (zipWith (unrollArgs ctx subs) ctor_arities branches)
+        regular_calls = -- trace (unwords ctor_names) $
+          concat (zipWith (unrollArgs ctx subs) ctor_arities branches)
         
         in regular_calls
       x -> []

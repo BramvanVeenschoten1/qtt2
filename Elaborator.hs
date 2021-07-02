@@ -15,8 +15,7 @@ import Data.Map as M
 import Data.Either
 import Data.Maybe
 import Prettyprint
-
-import Debug.Trace
+--import Debug.Trace
 
 data Use
   = Nouse
@@ -253,9 +252,7 @@ check st ctx expr ty = case expr of
     
     if convertible (snd st) ctx False ta ty
     then pure ()
-    else 
-      --trace (showTerm ctx ty') $
-      --trace (showTerm ctx ta') $
+    else
       Left (TypeError ctx (exprLoc x) ty a ta)
     
     pure (a,ua)

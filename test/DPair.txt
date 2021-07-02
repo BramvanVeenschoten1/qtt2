@@ -5,6 +5,9 @@ import Prelude
 data DPair (a : Type)(b : a -> Type): Type where
   mk : Pi (x : a), b x -> DPair a b
   
+rec : Pi (a : Type)(b : a -> Type)(p : DPair a b -> Type)(br : Pi (x : a)(y : b x), p (mk a b x y))(dp : DPair a b), p dp
+rec a b p b (mk x y) = b x y
+  
 fst : Pi (a : Type)(b : a -> Type), DPair a b -> a
 fst a b (mk x y) = x
 
@@ -13,3 +16,22 @@ snd a b (mk x y) = y
 
 eta : Pi (a : Type)(b : a -> Type)(x : DPair a b), Eq (DPair a b) x (mk a b (fst a b x) (snd a b x))
 eta a b (mk x y) = Refl (DPair a b) (mk a b x y)
+
+no_conf_t1 : Pi (a : Type)(b : a -> Type), DPair a b -> DPair a b -> Prop
+no_conf_t1 a b (mk x1 y1) (mk x2 y2) = And (Eq a x1 x2) (Heq (b x1) (b x2) y1 y2)
+
+no_conf_h1 : Pi (a : Type)(b : a -> Type)(x : DPair a b), no_conf_t1 a b x x
+no_conf_h1 a b (mk x y) = And_intro (Eq a x x) (Heq (b x) (b x) y y) (Refl a x) (hrefl (b x) y)
+
+no_conf1 : Pi (a : Type)(b : a -> Type)(x y : DPair a b), Eq (DPair a b) x y -> no_conf_t1 a b x y
+no_conf1 a b x y e = e (no_conf_t1 a b x) (no_conf_h1 a b x)
+
+no_conf_t2 : Pi (a : Type)(b : a -> Type), DPair a b -> DPair a b -> Type
+no_conf_t2 a b (mk x1 y1) (mk x2 y2) = DPair (Eq a x1 x2) (\e, Eq (b x2) (Lift 0 a x1 x2 e b y1) y2)
+
+no_conf_h2 : Pi (a : Type)(b : a -> Type)(x : DPair a b), no_conf_t2 a b x x
+no_conf_h2 a b (mk x y) = mk (Eq a x x) (\e, Eq (b x) (Lift 0 a x x e b y) y) (Refl a x) (Refl (b x) y)
+
+no_conf2 : Pi (a : Type)(b : a -> Type)(x y : DPair a b), Eq (DPair a b) x y -> no_conf_t2 a b x y
+no_conf2 a b x y e = Lift 1 (DPair a b) x y e (no_conf_t2 a b x) (no_conf_h2 a b x)
+

@@ -17,7 +17,6 @@ TODO:
 - do multiplicity checks
 - restore and improve termination checks
 - do positivity checks, also for indexed data
-- steal relevance lists from matita
 
 the atrocious error list:
 - non covering split
@@ -34,7 +33,7 @@ roadmap:
   - disambiguation
   - relax singleton criterion for absurd clauses
   - enable non-strict splits
-  - enable optimal splits
+  - enable alternative split order
   - optimize split liftover
   - split on Eq
   - patternmatching for minimal cic
@@ -50,7 +49,6 @@ pros:
 - simplify liftover in case expressions
 cons:
 - complicate kernel. Keep in mind that Agda can be implemented without this feature.
-- arbitraty liftover is still necessary when we do unification
 => for now, keep this burden in the kernel, but re-evaluate
 
 Q: have primitive default branches?
