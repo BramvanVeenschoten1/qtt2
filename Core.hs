@@ -29,10 +29,10 @@ data Plicity
   | Class
 
 data Ref
-  = Ind !Int !Int !Int         -- blockno, defno, uniparamno
-  | Con !Int !Int !Int !Int     -- blockno, defno, ctortag, paramno
-  | Fix !Int !Int !Int !Int !Int -- blockno, defno, recparamno, height, uniparamno uniparamno
-  | Def !Int !Int             -- declno, height
+  = Ind !Int !Int !Int           -- blockno, defno, uniparamno
+  | Con !Int !Int !Int !Int      -- blockno, defno, ctortag, paramno
+  | Fix !Int !Int !Int !Int !Int -- blockno, defno, recparamno, height, uniparamno
+  | Def !Int !Int                -- declno, height
   deriving Eq
 
 data Term
@@ -162,6 +162,21 @@ occurs deep shallow t = f 0 t False where
     | n < deep + k && n >= shallow + k = const True
     | otherwise = id
   f k t = Core.fold (const (+1)) k f t
+
+substDummy :: Int -> Term -> Term
+substDummy block t = f () t where
+  f _ app @ App {} = case unrollApp app of
+    (hd @ (Top _ (Ind blockno _ uniparamno)), args) ->
+      if block == blockno
+      then mkApp (Type 0) (fmap (f ()) (L.drop uniparamno args))
+      else mkApp hd (fmap (f ()) args)
+    (hd @ (Top _ (Fix blockno _ _ _ uniparamno)), args) ->
+      if block == blockno
+      then mkApp (Type 0) (fmap (f ()) (L.drop uniparamno args))
+      else mkApp hd (fmap (f ()) args)
+    (hd, args) -> mkApp hd (fmap (f ()) args)
+  f _ t = Core.map (const id) () f t
+    
 
 
 

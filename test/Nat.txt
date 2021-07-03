@@ -82,20 +82,8 @@ mult (succ n) m = plus m (mult n m)
 less : Nat -> Nat -> Bool
 less n m = is_lt (cmp n m)
 
--- {-
 Less : Nat -> Nat -> Prop
-Less zero zero = Bottom
-Less (succ _) zero = Bottom
-Less zero (succ _) = Top
-Less (succ n) (succ m) = Less n m
--- -}
-
-{-
-Less : Nat -> Nat -> Prop
-Less _ zero = Bottom
-Less zero (succ _) = Top
-Less (succ n) (succ m) = Less n m
--- -}
+Less n m = b2t (less n m)
 
 Leq : Nat -> Nat -> Prop
 Leq n m = Less n (succ m)

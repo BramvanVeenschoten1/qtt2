@@ -1,6 +1,6 @@
 module Equations where
 
-import Lexer (Loc)
+import Lexer
 import Parser
 import Core
 import Error
@@ -13,6 +13,8 @@ import Control.Monad
 --import Debug.Trace
 import Prettyprint
 import Reduction
+
+type Result = Either Error (Term,Uses)
 
 data Problem = Problem {
   problemConstraints :: [(Pattern,String,Mult,Term)],
@@ -42,7 +44,7 @@ instantiating variables, deleting variables from contexts, reordering contexts, 
 -}
 
 -- check multiplicities
-compileEquations :: ElabState -> Context -> [Problem] -> Term -> Either Error Term
+compileEquations :: ElabState -> Context -> [Problem] -> Term -> Result
 compileEquations  _ _ [] _ = error "non-covering split should have been detected earlier"
 compileEquations st ctx (probs @ (problem : _)) returnType =
   --trace (unlines (fmap showProblem probs) ++ ": " ++ showTerm ctx' returnType ++ "\n") $
@@ -51,14 +53,14 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
     constrs = problemConstraints problem
     ctx' = mkCtx constrs ++ ctx
     
-    checkSplittable :: Either Error Term -> (Int,(Pattern,String,Mult,Term)) -> Either Error Term
+    checkSplittable :: Result -> (Int,(Pattern,String,Mult,Term)) -> Result
     checkSplittable noSplit (k, (pat, s, mult, ty)) = -- trace ("checkSplittable: " ++ show k) $
      case pat of
       PIgnore _ -> noSplit
       PAbsurd loc -> checkEmpty k mult ty loc
       PApp loc _ hd args -> checkCtorPattern k mult loc hd args ty noSplit
     
-    checkEmpty :: Int -> Mult -> Term -> Loc -> Either Error Term
+    checkEmpty :: Int -> Mult -> Term -> Loc -> Result
     checkEmpty k mult ty loc =
       case unrollApp (whnf sig ctx' ty) of
       --(Pi _ _ (Type _) (Var 0),_) -> Case One k [] Nothing
@@ -68,11 +70,11 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
           if Prelude.null (snd ((sigData sig ! blockno) !! defno))
           then let
             motive = Lam Many "" ty (Core.lift 1 returnType)
-            in pure (Case mult (Var k False) motive [])
+            in pure (Case mult (Var k False) motive [], noUses)
           else Left (RefuteNonEmpty ctx' loc ty)
         _ -> Left (RefuteNonEmpty ctx' loc ty)
     
-    checkCtorPattern :: Int -> Mult -> Loc -> String -> [Pattern] -> Term -> Either Error Term -> Either Error Term
+    checkCtorPattern :: Int -> Mult -> Loc -> String -> [Pattern] -> Term -> Result -> Result
     checkCtorPattern k mult loc hd args ty noSplit =
       case unrollApp (whnf sig ctx' ty) of
         (Top _ (Ind blockno datano _), data_args) -> let
@@ -88,7 +90,7 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
           then noSplit
           else Left (SplitNonData loc)
     
-    splitAt :: Int -> Mult -> Loc -> Int -> Int -> [(String,Term)] -> [Term] -> Either Error Term
+    splitAt :: Int -> Mult -> Loc -> Int -> Int -> [(String,Term)] -> [Term] -> Result
     splitAt k mult loc blockno defno ctors args = do
       let (ctorNames,ctorTypes) = unzip ctors
           argc = length args
@@ -104,12 +106,15 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
             (L.lookup tag brs)
       mapM_ checkCovered [0 .. length ctors - 1]
       let motive = Core.lift (k + 1) (computeMotive k constrs returnType)
-      branches' <- zipWithM (computeBranch k mult args motive blockno defno) brs ctors
-      let cargs = reverse (fmap (flip Var False) [0 .. k - 1])
+      branches <- zipWithM (computeBranch k mult args motive blockno defno) brs ctors
+      let (branches', bUses) = unzip branches
+          elimUses = replicate k Nouse ++ [Oneuse One emptyLoc] ++ repeat Nouse
+          branchUses' = branchUses emptyLoc bUses
+          cargs = reverse (fmap (flip Var False) [0 .. k - 1])
           cased = Case mult (Var k False) motive branches'
-      pure (mkApp cased cargs)
+      pure (mkApp cased cargs, plusUses elimUses branchUses')
       
-    computeBranch :: Int -> Mult -> [Term] -> Term -> Int -> Int -> (Int,[Problem]) -> (String,Term) -> Either Error Term
+    computeBranch :: Int -> Mult -> [Term] -> Term -> Int -> Int -> (Int,[Problem]) -> (String,Term) -> Result
     computeBranch k mult args motive blockno datano (tag,problems) (ctorName,ctorType) =
       --trace ("split " ++ show k ++ ", branch " ++ show tag ++ ":") $
       --trace (unlines (fmap showProblem newProblems)) $
@@ -147,11 +152,10 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
               then pure (tag, problem)
               else Left (ArityMismatch loc (length args) argc)
 
+    tryIntro :: Result
     tryIntro
       | all (Prelude.null . problemPatterns) probs = do
-        (body,uses) <- check st ctx' (problemRhs problem) returnType
-        -- do something with uses
-        pure body
+        check st ctx' (problemRhs problem) returnType
       | all (not . Prelude.null . problemPatterns) probs =
         case whnf sig ctx' returnType of
           Pi mult name src dst -> let
@@ -165,7 +169,11 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
             
             probs2 = fmap introProblem probs
             
-            in Lam mult name' src <$> compileEquations st ctx probs2 dst
+            in do
+              (term,uses) <- compileEquations st ctx probs2 dst
+              let (use : uses') = uses
+              checkArgMult emptyLoc mult use
+              pure (Lam mult name' src term, uses')
           _ -> Left IntroNonFunction
       | otherwise = Left UnevenPatterns
 

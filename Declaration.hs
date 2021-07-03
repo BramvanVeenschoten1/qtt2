@@ -138,7 +138,7 @@ checkFunctions defs = do
   block <- gets nextBlock
 
   let (deflocs, defnames, deftys, clauses) = unzip4 defs
-
+      blockSize = length defs
       qnames = fmap (\name -> [modname, name]) defnames
 
   tys <- runTypechecker $
@@ -147,16 +147,18 @@ checkFunctions defs = do
       checkSort (snd st) [] emptyLoc k
       pure ty
 
-  let ctx = zipWith (\name ty -> Hyp name ty Nothing) defnames tys
+  let arities = fmap countDomains tys
+  
+      ctx = zipWith (\name ty -> Hyp name ty Nothing) defnames tys
   
       checkBody :: ElabState -> Term -> [Clause] -> Either Error Term
-      checkBody st t cs = compileEquations st ctx (fmap mkProblem cs) t
+      checkBody st t cs = fst <$> compileEquations st ctx (fmap mkProblem cs) t
   
   bodies <- runTypechecker $ \st -> zipWithM (checkBody st) tys clauses
 
   sig <- gets signature
 
-  let rec_calls = fmap (getRecursiveCalls sig ctx) bodies
+  let rec_calls = fmap (getRecursiveCalls sig ctx blockSize arities) bodies
       height = 1 + maximum (fmap heightOf bodies)
   
   case rec_calls of

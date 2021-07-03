@@ -27,6 +27,7 @@ roadmap:
   - allow defaulting branches.
     - for non-linear types, this can be done by just replacing the defaulting pattern by
       wildcard patterns
+  - experiment with configs all the way through
   - do inference for minimal cic
   - have liftable constants
   - full inference for universes and multiplicities with subtyping
