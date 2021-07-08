@@ -105,20 +105,20 @@ ensureFunction sig ctx loc t = case whnf sig ctx t of
   _ -> Left (ExpectedFunction ctx loc t)
 
 -- check variable usage against given multiplicity
-checkArgMult :: Loc -> Mult -> Use -> Either Error ()
-checkArgMult _ Many _ = pure ()
-checkArgMult _ Zero uses = f uses where
+checkArgMult :: String -> Loc -> Mult -> Use -> Either Error ()
+checkArgMult _ _ Many _ = pure ()
+checkArgMult name _ Zero uses = f uses where
   f Nouse           = pure ()
   f (Oneuse Zero _) = pure ()
-  f (Oneuse _ loc) = Left (LinearUsedUnrestricted loc)
+  f (Oneuse _ loc) = Left (ErasedUsedRelevant loc name)
   f (CaseUse loc xs) = mapM_ f xs
   f (Adduse x y) = f x *> f y
-checkArgMult loc One uses = checkOne uses where
+checkArgMult name loc One uses = checkOne uses where
 
-  checkOne Nouse = Left (LinearUnused loc)
-  checkOne (Oneuse Zero _) = Left (LinearUnused loc)
+  checkOne Nouse = Left (LinearUnused loc name)
+  checkOne (Oneuse Zero _) = Left (LinearUnused loc name)
   checkOne (Oneuse One _) = pure ()
-  checkOne (Oneuse Many loc) = Left (LinearUsedUnrestricted loc)
+  checkOne (Oneuse Many loc) = Left (LinearUsedUnrestricted loc name)
   checkOne (Adduse x y) = do
     m <- checkMaybe x
     if m
@@ -128,15 +128,15 @@ checkArgMult loc One uses = checkOne uses where
   
   checkNone Nouse = pure ()
   checkNone (Oneuse Zero _) = pure ()
-  checkNone (Oneuse One loc) = Left (LinearUsedAlready loc)
-  checkNone (Oneuse Many loc) = Left (LinearUsedUnrestricted loc)
+  checkNone (Oneuse One loc) = Left (LinearUsedAlready loc name)
+  checkNone (Oneuse Many loc) = Left (LinearUsedUnrestricted loc name)
   checkNone (Adduse x y) = checkNone x *> checkNone y
   checkNone (CaseUse loc' xs) = mapM_ checkNone xs
   
   checkMaybe Nouse = pure False
   checkMaybe (Oneuse Zero _) = pure False
   checkMaybe (Oneuse One _) = pure True
-  checkMaybe (Oneuse Many loc) = Left (LinearUsedUnrestricted loc)
+  checkMaybe (Oneuse Many loc) = Left (LinearUsedUnrestricted loc name)
   checkMaybe (Adduse x y) = do
     m <- checkMaybe x
     if m
@@ -146,7 +146,7 @@ checkArgMult loc One uses = checkOne uses where
     uses <- mapM checkMaybe xs
     if and uses || not (or uses)
     then pure (or uses)
-    else Left (LinearCase loc')
+    else Left (LinearCase loc' name)
 
 -- check or synthesise the binding of a let expression
 checkLetBinding :: ElabState -> Context -> Expr -> Expr -> Either Error (Term,Term,Uses)
@@ -189,7 +189,7 @@ synth st ctx expr = case expr of
           hypValue  = Nothing}
     (b,tb,ub0) <- synth st (hyp : ctx) b
     let ux : ub = ub0
-    checkArgMult mloc m ux
+    checkArgMult name mloc m ux
     pure (Lam m name ta b, Pi m name ta tb, ub)
   EPi loc mloc p m name ta tb -> do
     let la = exprLoc ta
@@ -216,7 +216,7 @@ check st ctx expr ty = case expr of
             hypValue  = Nothing}
     (b,ub0) <- check st (hyp : ctx) b tb
     let ux : ub = ub0
-    checkArgMult mloc m ux
+    checkArgMult name mloc m ux
     pure (Lam (useSum ux) name ta b, ub)
   ELam loc mloc p _ name ta b -> do
     (ta,_,_) <- synth st ctx ta
@@ -235,7 +235,7 @@ check st ctx expr ty = case expr of
     (b,ub0) <- check st (hyp : ctx) b tb
     
     let ux : ub = ub0
-    checkArgMult mloc m ux
+    checkArgMult name mloc m ux
     pure (Lam (useSum ux) name ta b, ub)
   ELet loc mloc name ta a b -> do
     (a,ta,ua) <- checkLetBinding st ctx ta a

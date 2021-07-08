@@ -143,7 +143,7 @@ showQName = intercalate "."
 
 showError :: Error -> String
 showError e = case e of
-  Msg s -> s
+  Msg s -> "bad error message:\n" ++ s
   
   TypeError ctx loc expected term given ->
     errHeader loc ctx ++
@@ -190,7 +190,16 @@ showError e = case e of
   BodyWithoutDecl loc ->
     show loc ++ "\ndefinition without type signature"
     
-  
+  LinearUnused loc name ->
+    show loc ++ "\nLinear variable `" ++ name ++ "' is unused"
+  LinearUsedAlready loc name ->
+    show loc ++ "\nLinear variable `" ++ name ++ "' was already used"
+  LinearUsedUnrestricted loc name ->
+    show loc ++ "\nLinear variable `" ++ name ++ "' is used in unrestricted context"
+  LinearCase loc name ->
+    show loc ++ "\nLinear variable `" ++ name ++ "' is used inconsistently accross case branches"
+  ErasedUsedRelevant loc name ->
+    show loc ++ "\nErased variable `" ++ name ++ "' is used in irrelevant position"
     
   RefuteNonEmpty ctx loc t ->
     errHeader loc ctx ++
@@ -210,7 +219,7 @@ showError e = case e of
     show loc ++ "\ndatatypes may not inhabit prop"
   
   
-  _ -> "some error"
+  -- _ -> "some error"
 
 {-
 showError :: Error -> String

@@ -21,11 +21,12 @@ data Error
   | DeclWithoutBody Loc
   | BodyWithoutDecl Loc
   
-  | LinearUnused Loc
-  | LinearUsedAlready Loc
-  | LinearUsedUnrestricted Loc
-  | LinearCase Loc
-  | ErasedUsedRelevant Loc
+  -- add variable names
+  | LinearUnused Loc String
+  | LinearUsedAlready Loc String
+  | LinearUsedUnrestricted Loc String
+  | LinearCase Loc String
+  | ErasedUsedRelevant Loc String
 
   | RefuteNonEmpty Context Loc Term
   | SplitNonData Loc

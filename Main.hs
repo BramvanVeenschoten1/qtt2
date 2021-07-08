@@ -10,17 +10,15 @@ import Control.Monad.RWS
 
 {-
 TODO:
-- fix equations
-- fix parser messages
-- fix error messages
-
-- do multiplicity checks
-- restore and improve termination checks
+- improve multiplicity checks
 - do positivity checks, also for indexed data
+- improve termination checks
+- violently rip out usage environments for casesplits
 
 the atrocious error list:
 - non covering split
 - intro non-function
+- add variable names to multiplicity errors
 
 roadmap:
   - allow splitting on bottom
@@ -40,8 +38,13 @@ roadmap:
   - patternmatching for minimal cic
   - general splitting on inductive families
 
+universe notes:
+- for the sake of elaboration of metavariables, it is useful to have (Prop = Type 0),
+  but Prop should not be liftable. 
+
+
 note to self: don't work too hard to make linearity work,
-  its not as valuable when you language can have separation logic for stateful computations
+  its not as valuable when you language can encode separation logic for stateful computations
 
 Q: have special case split computation for multiplicities?
 pros:

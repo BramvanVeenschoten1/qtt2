@@ -108,7 +108,7 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
       let motive = Core.lift (k + 1) (computeMotive k constrs returnType)
       branches <- zipWithM (computeBranch k mult args motive blockno defno) brs ctors
       let (branches', bUses) = unzip branches
-          elimUses = replicate k Nouse ++ [Oneuse One emptyLoc] ++ repeat Nouse
+          elimUses = replicate k Nouse ++ [Oneuse mult emptyLoc] ++ repeat Nouse
           branchUses' = branchUses emptyLoc bUses
           cargs = reverse (fmap (flip Var False) [0 .. k - 1])
           cased = Case mult (Var k False) motive branches'
@@ -130,7 +130,6 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
             pats' = args ++ L.foldl (\acc (pat,_,_,_) -> pat : acc) pats subsequent
             constrs' = (fmap (\(_,s,m,ty) -> (PIgnore loc,s,m,ty)) subsequent) ++ (PIgnore loc,s,m,ty) : previous 
         
-        -- args may need to be lifted over the thingies
         newType = computeBranchType mult blockno datano
           (fmap (Core.lift (k + 1)) args) motive tag (ctorName,ctorType)
       
@@ -172,7 +171,7 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
             in do
               (term,uses) <- compileEquations st ctx probs2 dst
               let (use : uses') = uses
-              checkArgMult emptyLoc mult use
+              checkArgMult name' emptyLoc mult use
               pure (Lam mult name' src term, uses')
           _ -> Left IntroNonFunction
       | otherwise = Left UnevenPatterns

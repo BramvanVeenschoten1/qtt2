@@ -99,7 +99,7 @@ proofIrrelevance : Pi (a : Prop)(x y : a), Eq a x y
 proofIrrelevance a x y = Refl a x
   
 liftBottom : Bottom => Pi (0 a : Type), a
-liftBottom x a = Lift 1 Type Bottom a (x (Pi (0 p : Type -> Prop), p Bottom -o p a)) (\x, x) x
+liftBottom x a = Lift 1 Type Top a (x (Pi (0 p : Type -> Prop), p Top -o p a)) (\x, x) tt
 
 id : Pi (a : Type), a -> a
 id a x = x

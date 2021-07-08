@@ -42,18 +42,18 @@ nth a n (cons m1 x xs e1) (succ m2 i e2) =
   let i2 = Lift 0 Nat m2 m1 e4 Fin i in
     nth a m1 xs i2
 
-zipWith : Pi (a b c : Type)(f : a -o b -o c)(n : Nat), Vec a n -o Vec b n -o Vec c n
+zipWith : Pi (a b c : Type)(f : a -o b -o c)(0 n : Nat), Vec a n -o Vec b n -o Vec c n
 zipWith a b c f n (nil e1) (nil e2) = nil c n e1
-zipWith a b c f n (cons m x xs e1) (nil e2) =
+zipWith a b c f n (cons q x xs e1) (nil e2) =
   liftBottom (Nat.no_conf
     Nat.Nat.zero
-    (Nat.Nat.succ m)
-    (e2 (\z, Eq Nat z (Nat.Nat.succ m)) e1)) (Vec c n)
-zipWith a b c f n (nil e1) (cons m x xs e2) =
+    (Nat.Nat.succ q)
+    (e2 (\z, Eq Nat z (Nat.Nat.succ q)) e1)) (a -o Vec a q -o Vec c n) x xs
+zipWith a b c f n (nil e1) (cons p y ys e2) =
   liftBottom (Nat.no_conf
     Nat.Nat.zero
-    (Nat.Nat.succ m)
-    (e1 (\z, Eq Nat z (Nat.Nat.succ m)) e2)) (Vec c n)
+    (Nat.Nat.succ p)
+    (e1 (\z, Eq Nat z (Nat.Nat.succ p)) e2)) (b -o Vec b p -o Vec c n) y ys
 zipWith a b c f n (cons m1 x xs e1) (cons m2 y ys e2) =
   let e3 = e2 (\z, Eq Nat z (Nat.Nat.succ m1)) e1 in
   let e4 = Nat.no_conf (Nat.Nat.succ m2) (Nat.Nat.succ m1) e3 in
