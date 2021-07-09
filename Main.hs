@@ -9,34 +9,30 @@ import System.Environment
 import Control.Monad.RWS
 
 {-
-TODO:
-- improve multiplicity checks
-- do positivity checks, also for indexed data
-- improve termination checks
-- violently rip out usage environments for casesplits
-
 the atrocious error list:
 - non covering split
 - intro non-function
-- add variable names to multiplicity errors
 
-roadmap:
-  - allow splitting on bottom
-  - allow defaulting branches.
-    - for non-linear types, this can be done by just replacing the defaulting pattern by
-      wildcard patterns
-  - experiment with configs all the way through
-  - do inference for minimal cic
-  - have liftable constants
-  - full inference for universes and multiplicities with subtyping
-  - disambiguation
-  - relax singleton criterion for absurd clauses
-  - enable non-strict splits
-  - enable alternative split order
-  - optimize split liftover
-  - split on Eq
-  - patternmatching for minimal cic
-  - general splitting on inductive families
+TODO:
+- do positivity checks, also for indexed data
+- violently rip out usage environments for casesplits
+- allow splitting on bottom
+- allow defaulting branches.
+  - for non-linear types, this can be done by just replacing the defaulting pattern by
+    wildcard patterns
+- experiment with configs all the way through
+- do inference for minimal cic
+- have liftable constants
+- full inference for universes and multiplicities with subtyping
+- disambiguation
+- relax singleton criterion for absurd clauses
+- enable non-strict splits
+- enable alternative split order
+- optimize split liftover
+- split on Eq
+- patternmatching for minimal cic
+- general splitting on inductive families
+- improve termination checks
 
 universe notes:
 - for the sake of elaboration of metavariables, it is useful to have (Prop = Type 0),

@@ -43,6 +43,14 @@ making them work. In particular, it is hard to equip them with semantics for
 instantiating variables, deleting variables from contexts, reordering contexts, etcetera.
 -}
 
+{-
+A few things on splitting on bottom:
+- even if the target type is in prop, liftbottom will be needed to unerase it
+- we'll need to keep in mind the level of the return type
+- abstract over linear arguments. this mechanism must be extended for simplifying other case splits
+-}
+
+
 -- check multiplicities
 compileEquations :: ElabState -> Context -> [Problem] -> Term -> Result
 compileEquations  _ _ [] _ = error "non-covering split should have been detected earlier"
@@ -55,10 +63,10 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
     
     checkSplittable :: Result -> (Int,(Pattern,String,Mult,Term)) -> Result
     checkSplittable noSplit (k, (pat, s, mult, ty)) = -- trace ("checkSplittable: " ++ show k) $
-     case pat of
-      PIgnore _ -> noSplit
-      PAbsurd loc -> checkEmpty k mult ty loc
-      PApp loc _ hd args -> checkCtorPattern k mult loc hd args ty noSplit
+      case pat of
+        PIgnore _ -> noSplit
+        PAbsurd loc -> checkEmpty k mult ty loc
+        PApp loc _ hd args -> checkCtorPattern k mult loc hd args ty noSplit
     
     checkEmpty :: Int -> Mult -> Term -> Loc -> Result
     checkEmpty k mult ty loc =
