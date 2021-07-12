@@ -117,4 +117,3 @@ fork : Pi (a b c : Type), (a -> b -> c) -> (a -> b) -> a -> c
 fork a b c f g x = f x (g x)
 
 
-

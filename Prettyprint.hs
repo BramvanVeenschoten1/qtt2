@@ -108,7 +108,7 @@ showSTerm ctx se @ (b0,b1,i) t = case t of
   Type 1 -> ("Type" ++)
   Type l -> ("Type " ++) . showsPrec 0 (l - 1)
   Lift l -> ("Lift " ++) . showsPrec 0 l
-  Var n _ -> dbiName n ctx
+  Var n  -> dbiName n ctx
   Top s _ -> (s ++)
   App fun arg -> showApp ctx se fun . (' ':) . showArg ctx (b1,False,i) arg
   Case mult eliminee motive branches ->
@@ -189,7 +189,12 @@ showError e = case e of
     show loc ++ "\ndeclaration without body"
   BodyWithoutDecl loc ->
     show loc ++ "\ndefinition without type signature"
-    
+  
+  IllFormedConstructor loc ->
+    show loc ++ "\nill-formed constructor"
+  IllegalOccurrence loc ->
+    show loc ++ "\nillegal occurrence in constructor"
+  
   LinearUnused loc name ->
     show loc ++ "\nLinear variable `" ++ name ++ "' is unused"
   LinearUsedAlready loc name ->
@@ -215,9 +220,7 @@ showError e = case e of
   IntroNonFunction -> "intro non function"
   UnevenPatterns -> "uneven patterns"
   
-  InductiveProp loc ->
-    show loc ++ "\ndatatypes may not inhabit prop"
-  
+  _ -> "bad errormessage"
   
   -- _ -> "some error"
 

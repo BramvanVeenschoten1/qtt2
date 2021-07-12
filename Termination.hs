@@ -48,7 +48,7 @@ getRecursiveCalls sig ctx blockSize arities t =
     smallerArgs = fmap (isSmaller ctx env) args
     argRecCalls = concatMap (\t -> getRecCalls k ctx env t (repeat Other)) args
     in case hd of
-      Var n _ ->
+      Var n ->
         if n >= k
         then (k + blockSize - n - 1, smallerArgs) : argRecCalls
         else argRecCalls
@@ -86,7 +86,7 @@ getRecursiveCalls sig ctx blockSize arities t =
         ctor_arities = fmap (\(_,ty) -> countDomains ty - data_argc) ctors
         
         elimSub = case unrollApp eliminee of
-          (Var n _, _) -> case env !! n of
+          (Var n, _) -> case env !! n of
             Seed m -> Sub m
             Sub m -> Sub m
             _ -> Other
@@ -120,7 +120,7 @@ getRecursiveCalls sig ctx blockSize arities t =
   -- case branches need to have lambda's stripped
   isSmaller :: Context -> [Subdata] -> Term -> Maybe Int
   isSmaller ctx subs t = case unrollApp t of
-    (Var n _, _) -> case subs !! n of
+    (Var n, _) -> case subs !! n of
       Sub m -> Just m
       _ -> Nothing
     _ -> Nothing

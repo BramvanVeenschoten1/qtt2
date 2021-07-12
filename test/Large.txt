@@ -1,0 +1,28 @@
+module Large
+
+import
+  Prelude
+  Bool
+  Nat
+  Pair
+
+data Maybe (a : Type): Type where
+  Nothing : Maybe a
+  Just : a -o Maybe a
+
+Vec : Type -> Nat -> Type
+Vec a zero = Top
+Vec a (succ n) = Pair a (Vec a n)
+
+Fin : Nat -> Type
+Fin zero = Bottom
+Fin (succ n) = Maybe (Fin n)
+
+nth : Pi (a : Type)(n : Nat), Vec a n -> Fin n -> a
+nth a zero _ i = liftBottom i a
+nth a (succ n) (mk x xs) Nothing = x
+nth a (succ n) (mk x xs) (Just i) = nth a n xs i
+
+zipWith : Pi (a b c : Type), (a -o b -o c) -> Pi n : Nat, Vec a n -o Vec b n -o Vec c n
+zipWith a b c f zero x y z = x (y z)
+zipWith a b c f (succ n) (mk x xs) (mk y ys) = mk c (Vec c n) (f x y) (zipWith a b c f n xs ys)

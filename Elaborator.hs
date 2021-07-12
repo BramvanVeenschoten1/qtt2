@@ -89,7 +89,7 @@ lookupCtx :: Context -> Loc -> Name -> Maybe (Term,Term,Uses)
 lookupCtx ctx loc name = f 0 ctx where
   f n [] = Nothing
   f n (hyp:hyps)
-    | name == hypName hyp = pure (Var n (isJust (hypValue hyp)), Core.lift (n + 1) (hypType hyp), (Oneuse One loc) : noUses)
+    | name == hypName hyp = pure (Var n, Core.lift (n + 1) (hypType hyp), (Oneuse One loc) : noUses)
     | otherwise = fmap (\(t,ty,u) -> (t,ty,Nouse:u)) (f (n + 1) hyps)
 
 

@@ -14,8 +14,7 @@ the atrocious error list:
 - intro non-function
 
 TODO:
-- do positivity checks, also for indexed data
-- violently rip out usage environments for casesplits
+- check constructor levels
 - allow splitting on bottom
 - allow defaulting branches.
   - for non-linear types, this can be done by just replacing the defaulting pattern by
@@ -30,6 +29,8 @@ TODO:
 - enable alternative split order
 - optimize split liftover
 - split on Eq
+- violently rip out usage environments for casesplits
+  => the consequences of context reorderings are not to be underestimated, linear arguments may be dependencies
 - patternmatching for minimal cic
 - general splitting on inductive families
 - improve termination checks

@@ -78,7 +78,7 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
           if Prelude.null (snd ((sigData sig ! blockno) !! defno))
           then let
             motive = Lam Many "" ty (Core.lift 1 returnType)
-            in pure (Case mult (Var k False) motive [], noUses)
+            in pure (Case mult (Var k) motive [], noUses)
           else Left (RefuteNonEmpty ctx' loc ty)
         _ -> Left (RefuteNonEmpty ctx' loc ty)
     
@@ -118,8 +118,8 @@ compileEquations st ctx (probs @ (problem : _)) returnType =
       let (branches', bUses) = unzip branches
           elimUses = replicate k Nouse ++ [Oneuse mult emptyLoc] ++ repeat Nouse
           branchUses' = branchUses emptyLoc bUses
-          cargs = reverse (fmap (flip Var False) [0 .. k - 1])
-          cased = Case mult (Var k False) motive branches'
+          cargs = reverse (fmap Var [0 .. k - 1])
+          cased = Case mult (Var k) motive branches'
       pure (mkApp cased cargs, plusUses elimUses branchUses')
       
     computeBranch :: Int -> Mult -> [Term] -> Term -> Int -> Int -> (Int,[Problem]) -> (String,Term) -> Result

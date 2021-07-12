@@ -38,12 +38,12 @@ data Ref
 data Term
   = Type !Int
   | Lift !Int
-  | Var !Int !Bool
-  | Lam !Mult !String !Term !Term
-  | Pi  !Mult !String !Term !Term
-  | Let !Mult !String !Term !Term !Term
-  | App !Term !Term
-  | Top !String !Ref
+  | Var  !Int 
+  | Lam  !Mult !String !Term !Term
+  | Pi   !Mult !String !Term !Term
+  | Let  !Mult !String !Term !Term !Term
+  | App  !Term !Term
+  | Top  !String !Ref
   | Case !Mult !Term !Term ![Term]
 
 type Inductive = (Term,[(String,Term)])
@@ -67,15 +67,15 @@ nth _ [] = Nothing
 
 liftTy l = 
     Pi Zero "a" (Type l) $
-    Pi Zero "x" (Var 0 False) $
-    Pi Zero "y" (Var 1 False) $
+    Pi Zero "x" (Var 0) $
+    Pi Zero "y" (Var 1) $
     Pi Zero ""  (
-      Pi Zero "P" (Pi Many "" (Var 2 False) (Type 0)) $
-      Pi One  ""  (App (Var 0 False) (Var 2 False)) $
-                  (App (Var 1 False) (Var 2 False))) $
-    Pi Zero "P" (Pi Many "" (Var 3 False) (Type l)) $
-    Pi One  ""  (App (Var 0 False) (Var 3 False)) $
-                (App (Var 1 False) (Var 3 False))
+      Pi Zero "P" (Pi Many "" (Var 2) (Type 0)) $
+      Pi One  ""  (App (Var 0) (Var 2)) $
+                  (App (Var 1) (Var 2))) $
+    Pi Zero "P" (Pi Many "" (Var 3) (Type l)) $
+    Pi One  ""  (App (Var 0) (Var 3)) $
+                (App (Var 1) (Var 3))
 
 fold :: (Hyp -> k -> k) -> k -> (k -> Term -> a -> a) -> Term -> a -> a
 fold push ctx f t = case t of
@@ -97,8 +97,8 @@ map push ctx f t = case t of
   t -> t
 
 lift n = f 0 where
-  f k (Var m b)
-    | m >= k = Var (m + n) b
+  f k (Var m)
+    | m >= k = Var (m + n)
   f k t = Core.map (const (+1)) k f t
 
 mkApp = L.foldl App
@@ -110,8 +110,8 @@ unrollApp t = f t [] where
 psubst args = f 0 where
   nargs = length args
   
-  f k t @ (Var n b)
-    | n >= k + nargs = Var (n - nargs) b -- free
+  f k t @ (Var n)
+    | n >= k + nargs = Var (n - nargs) -- free
     | n < k = t -- local
     | otherwise = lift k (args !! (n - k)) -- in bounds
   f k (App fun arg) = beta (f k fun) (f k arg)
@@ -140,7 +140,7 @@ computeBranchType mult blockno datano args motive ctorno (name,ctorType) =
     f k t = App (Core.lift k motive) (mkApp
           (Top name (Con blockno datano ctorno argc))
           (fmap (Core.lift k) args ++
-          fmap (flip Var False) (reverse [0 .. k - 1])))
+          fmap Var (reverse [0 .. k - 1])))
   
 typeOfRef :: Signature -> Ref -> Term
 typeOfRef sig ref = case ref of
@@ -158,8 +158,8 @@ heightOf t = f () t 0 where
 
 occurs :: Int -> Int -> Term -> Bool
 occurs deep shallow t = f 0 t False where
-  f k (Var n _)
-    | n < deep + k && n >= shallow + k = const True
+  f k (Var n)
+    | n <= deep + k && n >= shallow + k = const True
     | otherwise = id
   f k t = Core.fold (const (+1)) k f t
 

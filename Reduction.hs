@@ -25,10 +25,11 @@ reduce sig ctx delta (Config k e t s) = f k e t s where
   f :: Int -> [Config] -> Term -> [Config] -> (Config,Bool)
   --f k e t s
   --  | trace (">> " ++ showConf ctx (Config k e t s)) False = undefined
-  f k e t @ (Var n b) s
+  f k e t @ (Var n) s
     | n < k = let Config k' e' t' s' = e !! n in f k' e' t' (s' ++ s)
-    | b = let Just x = hypValue (ctx !! (n - k)) in
-      f 0 [] (Core.lift (n - k + 1) x) s
+    | otherwise = case nth (n - k) ctx >>= hypValue of
+      Just x -> f 0 [] (Core.lift (n - k + 1) x) s
+      Nothing -> (Config k e t s, True)
   f k e (Let _ _ _ x y) s =
     f (k + 1) (fst (f k e x []) : e) y s
   f k e (Lam _ _ _ dst) (x:s) =
@@ -62,7 +63,7 @@ betaReduce sig ctx t = unwind (fst (reduce sig ctx maxBound (mkConf t)))
 typeOf :: Signature -> Context -> Term -> Term
 typeOf sig ctx t = case t of
   Type n -> Type (n + 1)
-  Var n b -> Core.lift (n + 1) (hypType (fromMaybe undefined (nth n ctx)))
+  Var n -> Core.lift (n + 1) (hypType (fromMaybe undefined (nth n ctx)))
   Lift l -> liftTy l
   Lam mult name src dst ->
     Pi mult name src (typeOf sig (Hyp name src Nothing : ctx) dst)
@@ -111,7 +112,7 @@ convertible sig ctx flag t0 t1 =
   machine flag (beta (mkConf t0)) (beta (mkConf t1)) where
   
   alpha ctx flag (Type l0) (Type l1) = l0 == l1 || (not flag && l0 <= l1)
-  alpha ctx flag (Var n0 _) (Var n1 _) = n0 == n1
+  alpha ctx flag (Var n0) (Var n1) = n0 == n1
   alpha ctx flag (Lift l0) (Lift l1) = l0 == l1
   alpha ctx flag (Lam _ name src0 dst0) (Lam _ _ _ dst1) =
     convertible sig (Hyp name src0 Nothing : ctx) flag dst0 dst1

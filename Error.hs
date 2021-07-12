@@ -21,7 +21,9 @@ data Error
   | DeclWithoutBody Loc
   | BodyWithoutDecl Loc
   
-  -- add variable names
+  | IllFormedConstructor Loc
+  | IllegalOccurrence Loc
+  
   | LinearUnused Loc String
   | LinearUsedAlready Loc String
   | LinearUsedUnrestricted Loc String
@@ -35,5 +37,3 @@ data Error
   | NonCoveringSplit Loc String
   | IntroNonFunction
   | UnevenPatterns
-  
-  | InductiveProp Loc

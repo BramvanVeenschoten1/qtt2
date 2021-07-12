@@ -12,6 +12,7 @@ import Elaborator
 import Lexer (Loc, emptyLoc)
 import Parser
 import Prettyprint
+import Datatype
 import Equations
 import Error
 import Termination
@@ -231,13 +232,13 @@ checkData defs = do
 
       ctor_qnames = concat (zipWith (\qname ctor_names -> fmap (\name -> qname ++ [name]) ctor_names) qnames ctor_names)
 
-  let checkParams :: ElabState -> Context -> [Param] -> Expr -> Either Error  (Context, Term)
+  let checkParams :: ElabState -> Context -> [Param] -> Expr -> Either Error  (Context, Term, Int)
       checkParams st ctx [] e = case e of
-          EType loc 0 -> Left (InductiveProp loc)
+          EType loc 0 -> Left (IllFormedConstructor loc)
           EType loc l -> pure (ctx, Type l)
           _ -> Left (Msg "indices not supported")
       checkParams st ctx ((_, p, m, name, ty) : params) e = do
-        (ty, _, _) <- synth st ctx ty
+        (ty, kind, _) <- synth st ctx ty
         checkParams st (Hyp name ty Nothing : ctx) params e
 
   (paramss, arities) <- unzip <$> runTypechecker (\st -> zipWithM (checkParams st []) paramss arities)
@@ -255,9 +256,13 @@ checkData defs = do
 
       checkCtor :: ElabState -> Context -> Int -> Int -> Ctor -> Either Error (Int, Term)
       checkCtor st ctx defno pno (loc, name, expr) = do
-        (t, _, _) <- synth st ctx expr
-        --u <- allOccurrencesPositive loc defcount defno pno pno (pno + defcount) t
-        pure (0,t)
+        (t, kind, _) <- synth st ctx expr
+        u <- allOccurrencesPositive (snd st) ctx loc defcount defno pno pno (pno + defcount) t
+        case kind of
+          Type l -> do
+            undefined
+          _ -> error "constructor not a type"
+        pure (u,t)
 
       checkCtorBlock :: ElabState -> Context ->  (Int, Context, [Ctor]) -> Either Error (Int, [Term])
       checkCtorBlock st ctx (defno, params, ctors) = do
