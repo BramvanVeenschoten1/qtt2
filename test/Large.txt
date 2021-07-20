@@ -11,7 +11,7 @@ data Maybe (a : Type): Type where
   Just : a -o Maybe a
 
 Vec : Type -> Nat -> Type
-Vec a zero = Top
+Vec a zero = Unit
 Vec a (succ n) = Pair a (Vec a n)
 
 Fin : Nat -> Type
@@ -24,5 +24,28 @@ nth a (succ n) (mk x xs) Nothing = x
 nth a (succ n) (mk x xs) (Just i) = nth a n xs i
 
 zipWith : Pi (a b c : Type), (a -o b -o c) -> Pi n : Nat, Vec a n -o Vec b n -o Vec c n
-zipWith a b c f zero x y z = x (y z)
+zipWith a b c f zero tt tt = tt
 zipWith a b c f (succ n) (mk x xs) (mk y ys) = mk c (Vec c n) (f x y) (zipWith a b c f n xs ys)
+
+data Pair2 (a b : Type 1): Type 1 where
+  mk : a -o b -o Pair2 a b
+
+Vec2 : Nat -> Type 1
+Vec2 zero = Unit
+Vec2 (succ n) = Pair2 Type (Vec2 n)
+
+Tup : Pi n : Nat, Vec2 n -> Type
+Tup zero tt = Unit
+Tup (succ n) (mk t ts) = Pair t (Tup n ts)
+
+nthT : Pi n : Nat, Vec2 n -> Fin n -> Type
+nthT zero m i = Bottom
+nthT (succ n) (mk t ts) Nothing = t
+nthT (succ n) (mk t ts) (Just i) = nthT n ts i
+
+nthV : Pi (n : Nat)(xs : Vec2 n)(i : Fin n), Tup n xs -> nthT n xs i
+nthV zero tt l _ = l
+nthV (succ n) (mk t ts) Nothing (mk x xs) = x
+nthV (succ n) (mk t ts) (Just i) (mk x xs) = nthV n ts i xs
+
+

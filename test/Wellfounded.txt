@@ -4,3 +4,4 @@ import Prelude
 
 data Acc (a : Type)(r : a -> a -> Type)(x : a) : Type where
   intro : (Pi (0 y : a), r y x => Acc a r y) -> Acc a r x
+

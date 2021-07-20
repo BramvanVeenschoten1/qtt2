@@ -29,7 +29,7 @@ length a (cons x xs) = succ (length a xs)
 append : Pi (a : Type)(1 xs : List a)(1 ys : List a), List a
 append a xs ys = foldr a (List a) (cons a) ys xs
 
-append_associates : Pi (a : Type)(xs ys zs : List a), Eq (List a)
+append_associates : Pi (a : Type)(xs ys zs : List a), Eq (List a) (List a)
   (append a xs (append a ys zs))
   (append a (append a xs ys) zs)
 append_associates a nil ys zs = Refl (List a) (append a ys zs)
@@ -41,7 +41,7 @@ append_associates a (cons x xs) ys zs =
     (append_associates a xs ys zs)
 
 {-
-double_reverse : Pi (a : Type)(xs : List a), Eq (List a) xs (reverse a (reverse a xs))
+double_reverse : Pi (a : Type)(xs : List a), Eq (List a) (List a) xs (reverse a (reverse a xs))
 double_reverse a nil = Refl (List a) (nil a)
 double_reverse a (cons x xs) =
   let ih = double_reverse a xs in

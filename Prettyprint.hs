@@ -194,6 +194,8 @@ showError e = case e of
     show loc ++ "\nill-formed constructor"
   IllegalOccurrence loc ->
     show loc ++ "\nillegal occurrence in constructor"
+  LargeConstructor loc ->
+    show loc ++ "\nconstructor embeds sort too large for inductive type"
   
   LinearUnused loc name ->
     show loc ++ "\nLinear variable `" ++ name ++ "' is unused"
@@ -220,9 +222,7 @@ showError e = case e of
   IntroNonFunction -> "intro non function"
   UnevenPatterns -> "uneven patterns"
   
-  _ -> "bad errormessage"
-  
-  -- _ -> "some error"
+  -- _ -> "bad errormessage"
 
 {-
 showError :: Error -> String

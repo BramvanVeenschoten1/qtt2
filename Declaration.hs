@@ -232,13 +232,13 @@ checkData defs = do
 
       ctor_qnames = concat (zipWith (\qname ctor_names -> fmap (\name -> qname ++ [name]) ctor_names) qnames ctor_names)
 
-  let checkParams :: ElabState -> Context -> [Param] -> Expr -> Either Error  (Context, Term, Int)
+  let checkParams :: ElabState -> Context -> [Param] -> Expr -> Either Error  (Context, Term)
       checkParams st ctx [] e = case e of
           EType loc 0 -> Left (IllFormedConstructor loc)
           EType loc l -> pure (ctx, Type l)
           _ -> Left (Msg "indices not supported")
       checkParams st ctx ((_, p, m, name, ty) : params) e = do
-        (ty, kind, _) <- synth st ctx ty
+        (ty, _, _) <- synth st ctx ty
         checkParams st (Hyp name ty Nothing : ctx) params e
 
   (paramss, arities) <- unzip <$> runTypechecker (\st -> zipWithM (checkParams st []) paramss arities)
@@ -254,24 +254,23 @@ checkData defs = do
 
       ctx_with_arities = reverse (zipWith (\name ty -> Hyp name ty Nothing) names extended_arities)
 
-      checkCtor :: ElabState -> Context -> Int -> Int -> Ctor -> Either Error (Int, Term)
-      checkCtor st ctx defno pno (loc, name, expr) = do
+      checkCtor :: ElabState -> Context -> Int -> Int -> Term -> Ctor -> Either Error (Int, Term)
+      checkCtor st ctx defno pno arity (loc, name, expr) = do
         (t, kind, _) <- synth st ctx expr
         u <- allOccurrencesPositive (snd st) ctx loc defcount defno pno pno (pno + defcount) t
-        case kind of
-          Type l -> do
-            undefined
-          _ -> error "constructor not a type"
-        pure (u,t)
+        if convertible (snd st) ctx False kind arity
+        then pure (u,t)
+        else Left (LargeConstructor loc)
 
-      checkCtorBlock :: ElabState -> Context ->  (Int, Context, [Ctor]) -> Either Error (Int, [Term])
-      checkCtorBlock st ctx (defno, params, ctors) = do
-        (us, ctors) <- unzip <$> mapM (checkCtor st (params ++ ctx_with_arities) defno (length params)) ctors
+      checkCtorBlock :: ElabState -> Context ->  (Int, Context, [Ctor], Term) -> Either Error (Int, [Term])
+      checkCtorBlock st ctx (defno, params, ctors, arity) = do
+        let ctx' = params ++ ctx_with_arities
+        (us, ctors) <- unzip <$> mapM (checkCtor st ctx' defno (length params) arity) ctors
         pure (minimum (maxBound : us), ctors)
 
   (us, ctor_tys) <-
     runTypechecker $ \st ->
-      unzip <$> mapM (checkCtorBlock st ctx_with_arities) (zip3 [0 ..] paramss ctorss)
+      unzip <$> mapM (checkCtorBlock st ctx_with_arities) (zip4 [0 ..] paramss ctorss arities)
 
   let -- abstracted ctors explicitly quantify over the datatype parameters
       abstractCtors :: Context -> [Term] -> [Term]

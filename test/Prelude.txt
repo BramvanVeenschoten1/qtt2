@@ -6,8 +6,8 @@ Bottom = Pi (0 a : Prop), a
 Top : Prop
 Top = Bottom -o Bottom
 
-tt : Top
-tt = \x, x
+trivial : Top
+trivial = \x, x
 
 And : Prop -> Prop -> Prop
 And a b = Pi c : Prop, (a -> b -> c) -> c
@@ -39,67 +39,49 @@ Exists a p = Pi c : Prop, (Pi x : a, p x -> c) -> c
 Exists_intro : Pi (a : Type)(p : a -> Prop)(x : a), p x -> Exists a p
 Exists_intro a p x px _ f = f x px
 
-Eq : Pi (a : Type), a -> a -> Prop
-Eq a x y = Pi (0 p : a -> Prop), p x -o p y
+Eq : Pi (a b : Type 1), a -> b -> Prop
+Eq a b x y = Pi (0 p : Pi c : Type 1, c -> Prop), p a x -o p b y
 
-Refl : Pi (a : Type)(x : a), Eq a x x
+Refl : Pi (a : Type 1)(x : a), Eq a a x x
 Refl a x p px = px
 
-sym : Pi (a : Type)(x y : a), Eq a x y -> Eq a y x
-sym a x y e = e (\z, Eq a z x) (Refl a x)
+subst : Pi (0 a : Type 1)(0 x y : a)(0 e : Eq a a x y)(0 p : a -> Type), p x -o p y
+subst a x y e =
+  Lift 1 a x y (e
+    (\c z, Pi e : (Pi 0 p : Type 1 -> Prop, p c -o p a),
+      Pi 0 p : a -> Prop, p x -o p (Lift 2 Type 1 c a e (\x, x) z))
+    (\_ _ x, x)
+    (\_ x, x))
 
-trans : Pi (a : Type)(x y z : a), Eq a x y -> Eq a y z -> Eq a x z
-trans a x y z e1 e2 = e2 (Eq a x) e1
+sym : Pi (a b : Type)(x : a)(y : b), Eq a b x y -> Eq b a y x
+sym a b x y e = e (\c z, Eq c a z x) (Refl a x)
 
-cong : Pi (a b : Type)(x y : a)(f : a -> b), Eq a x y -> Eq b (f x) (f y)
-cong a b x y f e = e (\z, Eq b (f x) (f z)) (Refl b (f x))
+trans : Pi (a b c : Type)(x : a)(y : b)(z : c), Eq a b x y -> Eq b c y z -> Eq a c x z
+trans a b c x y z e1 e2 = e2 (\d w, Eq a d x w) e1
 
-J : Pi (a : Type)(x y : a)(e : Eq a x y)(P : Pi z : a, Eq a x z -> Type), P x (Refl a x) -> P y e
-J a x y e P px = Lift 0 a x y e (\z, Pi e : Eq a x z, P z e) (\_, px) e
+cong : Pi (a b : Type)(x y : a)(f : a -> b)(e : Eq a a x y), Eq b b (f x) (f y)
+cong a b x y f e = subst a x y e (\z, Eq b b (f x) (f z)) (Refl b (f x))
 
-K : Pi (a : Type)(x : a)(e : Eq a x x)(P : Eq a x x -> Type), P (Refl a x) -> P e
-K a x e P px = px
+dcong : Pi (a : Type)(b : a -> Type)(x y : a)(f : Pi x : a, b x)(e : Eq a a x y), Eq (b x) (b y) (f x) (f y)
+dcong a b x y f e = subst a x y e (\z, Eq (b x) (b z) (f x) (f z)) (Refl (b x) (f x))
 
-{-
-  Consider heterogeneous equalities:
-  pros:
-  - simpler types for no-confusion, as well as functions like dependent congruence
-  cons:
-  - instantiating variables during unifications appears to be more difficult
-    => is it though? a few casts need to be added, but the procedure is essentially the same
-    => The equality itself needs to be cast over, thats all
-    => Heteq was the right solution all along
-    
-  the essential difference between matching on datatypes and eq is that the instantiated variable
-  may not be dbi 0 in the current context, and the computation of the motive may require some lifting.
-  splitting on indexed data may be done simply by introducing equalities, or efficiently by computing
-  the motive the same way when possible (indices are free variables)
--}
+cast : Pi (a b : Type), Eq Type Type a b -> a -> b
+cast a b e = subst Type a b e (\x, x)
 
-Heq : Pi (a b : Type), a -> b -> Prop
-Heq a b x y = Pi (0 p : Pi c : Type, c -> Prop), p a x -o p b y
+J2 : Pi (a : Type 1)(x y : a)(e : Eq a a x y)(P : Pi z : a, Eq a a x z -> Type), P x (Refl a x) -> P y e
+J2 a x y e P px = subst a x y e (\z, Pi e : Eq a a x z, P z e) (\_, px) e
 
-hrefl : Pi (a : Type)(x : a), Heq a a x x
-hrefl a x p px = px
+K2 : Pi (a : Type 1)(x : a)(e : Eq a a x x)(P : Eq a a x x -> Type), P (Refl a x) -> P e
+K2 a x e P px = px
 
-hom : Pi (a : Type)(x y : a), Heq a a x y -> Eq a x y
-hom a x y e =
-  let Teq : Type -> Type -> Prop =
-    \a b, Pi (0 P : Type -> Prop), P a -o P b in
-  let TRefl : Pi a : Type, Teq a a =
-    \a p px, px in
-  let cast : Pi (a b : Type), Teq a b -> a -> b =
-    \a b e, Lift 1 Type a b e (\x,x) in
-    e (\c z, Pi e : Teq c a, Eq a x (cast c a e z)) (\e, Refl a x) (TRefl a)
-
-EqualityIrrelevance : Pi (a : Type)(x : a)(e : Eq a x x), Eq a (Lift 0 a x x e (\_, a) x) x
+EqualityIrrelevance : Pi (a : Type)(x : a)(e : Eq a a x x), Eq a a (subst a x x e (\_, a) x) x
 EqualityIrrelevance a x e = Refl a x
 
-proofIrrelevance : Pi (a : Prop)(x y : a), Eq a x y
+proofIrrelevance : Pi (a : Prop)(x y : a), Eq a a x y
 proofIrrelevance a x y = Refl a x
   
 liftBottom : Bottom => Pi (0 a : Type 4), a
-liftBottom x a = Lift 5 Type 4 Top a (x (Pi (0 p : Type 4 -> Prop), p Top -o p a)) (\x, x) tt
+liftBottom x a = Lift 5 Type 4 Top a (x (Pi (0 p : Type 4 -> Prop), p Top -o p a)) (\x, x) trivial
 
 id : Pi (a : Type), a -> a
 id a x = x
@@ -115,5 +97,8 @@ comp a b c f g x = f (g x)
 
 fork : Pi (a b c : Type), (a -> b -> c) -> (a -> b) -> a -> c
 fork a b c f g x = f x (g x)
+
+data Unit : Type where
+  tt : Unit
 
 

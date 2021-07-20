@@ -23,6 +23,7 @@ data Error
   
   | IllFormedConstructor Loc
   | IllegalOccurrence Loc
+  | LargeConstructor Loc
   
   | LinearUnused Loc String
   | LinearUsedAlready Loc String

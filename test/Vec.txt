@@ -6,14 +6,14 @@ import
   Fin
 
 data Vec (a : Type)(n : Nat): Type where
-  nil  : Eq Nat n Nat.Nat.zero => Vec a n
-  cons : Pi (0 m : Nat), a -o Vec a m -o Eq Nat n (Nat.Nat.succ m) => Vec a n
+  nil  : Eq Nat Nat n Nat.Nat.zero => Vec a n
+  cons : Pi (0 m : Nat), a -o Vec a m -o Eq Nat Nat n (Nat.Nat.succ m) => Vec a n
 
 nil_irrelevance : Pi
   (a : Type)
   (n : Nat)
-  (e1 e2 : Eq Nat n Nat.Nat.zero),
-    Eq (Vec a n) (nil a n e1) (nil a n e2)
+  (e1 e2 : Eq Nat Nat n Nat.Nat.zero),
+    Eq (Vec a n) (Vec a n) (nil a n e1) (nil a n e2)
 nil_irrelevance a n e1 e2 = Refl (Vec a n) (nil a n e1)
 
 cons_irrelevance : Pi
@@ -21,8 +21,8 @@ cons_irrelevance : Pi
   (n m : Nat)
   (x : a)
   (xs : Vec a m)
-  (e1 e2 : Eq Nat n (Nat.Nat.succ m)),
-    Eq (Vec a n) (cons a n m x xs e1) (cons a n m x xs e2)
+  (e1 e2 : Eq Nat Nat n (Nat.Nat.succ m)),
+    Eq (Vec a n) (Vec a n) (cons a n m x xs e1) (cons a n m x xs e2)
 cons_irrelevance a n m x xs e1 e2 = Refl (Vec a n) (cons a n m x xs e1)
 
 nth : Pi (a : Type)(0 n : Nat), Vec a n -> Fin n -> a
@@ -30,16 +30,16 @@ nth a n (nil e1) (zero m e2) =
   liftBottom (Nat.no_conf
     (Nat.Nat.succ m)
     Nat.Nat.zero
-    (e2 (\z, Eq Nat z Nat.Nat.zero) e1)) a
+    (subst Nat n (Nat.Nat.succ m) e2 (\z, Eq Nat Nat z Nat.Nat.zero) e1)) a
 nth a n (nil e1) (succ m _ e2) =
   liftBottom (Nat.no_conf
     (Nat.Nat.succ m)
     Nat.Nat.zero
-    (e2 (\z, Eq Nat z Nat.Nat.zero) e1)) a
+    (subst Nat n (Nat.Nat.succ m) e2 (\z, Eq Nat Nat z Nat.Nat.zero) e1)) a
 nth a n (cons m1 x xs e1) (zero _ _) = x
 nth a n (cons m1 x xs e1) (succ m2 i e2) =
-  let e4 = (Nat.no_conf (Nat.Nat.succ m2) (Nat.Nat.succ m1)  (e2 (\z, Eq Nat z (Nat.Nat.succ m1)) e1)) in
-  let i2 = Lift 0 Nat m2 m1 e4 Fin i in
+  let e4 = (Nat.no_conf (Nat.Nat.succ m2) (Nat.Nat.succ m1) (subst Nat n (Nat.Nat.succ m2) e2 (\z, Eq Nat Nat z (Nat.Nat.succ m1)) e1)) in
+  let i2 = subst Nat m2 m1 e4 Fin i in
     nth a m1 xs i2
 
 zipWith : Pi (a b c : Type)(f : a -o b -o c)(0 n : Nat), Vec a n -o Vec b n -o Vec c n
@@ -48,14 +48,14 @@ zipWith a b c f n (cons q x xs e1) (nil e2) =
   liftBottom (Nat.no_conf
     Nat.Nat.zero
     (Nat.Nat.succ q)
-    (e2 (\z, Eq Nat z (Nat.Nat.succ q)) e1)) (a -o Vec a q -o Vec c n) x xs
+    (subst Nat n Nat.Nat.zero e2 (\z, Eq Nat Nat z (Nat.Nat.succ q)) e1)) (a -o Vec a q -o Vec c n) x xs
 zipWith a b c f n (nil e1) (cons p y ys e2) =
   liftBottom (Nat.no_conf
     Nat.Nat.zero
     (Nat.Nat.succ p)
-    (e1 (\z, Eq Nat z (Nat.Nat.succ p)) e2)) (b -o Vec b p -o Vec c n) y ys
+    (subst Nat n Nat.Nat.zero e1 (\z, Eq Nat Nat z (Nat.Nat.succ p)) e2)) (b -o Vec b p -o Vec c n) y ys
 zipWith a b c f n (cons m1 x xs e1) (cons m2 y ys e2) =
-  let e3 = e2 (\z, Eq Nat z (Nat.Nat.succ m1)) e1 in
+  let e3 = subst Nat n (Nat.Nat.succ m2) e2 (\z, Eq Nat Nat z (Nat.Nat.succ m1)) e1 in
   let e4 = Nat.no_conf (Nat.Nat.succ m2) (Nat.Nat.succ m1) e3 in
-  let ys2 = Lift 0 Nat m2 m1 e4 (Vec b) ys in
+  let ys2 = subst Nat m2 m1 e4 (Vec b) ys in
     cons c n m1 (f x y) (zipWith a b c f m1 xs ys2) e1

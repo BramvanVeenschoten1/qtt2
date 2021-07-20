@@ -14,7 +14,7 @@ the atrocious error list:
 - intro non-function
 
 TODO:
-- check constructor levels
+- improve constructor level error messages
 - allow splitting on bottom
 - allow defaulting branches.
   - for non-linear types, this can be done by just replacing the defaulting pattern by
