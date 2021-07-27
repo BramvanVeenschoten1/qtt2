@@ -107,7 +107,7 @@ showSTerm ctx se @ (b0,b1,i) t = case t of
   Type 0 -> ("Prop" ++)
   Type 1 -> ("Type" ++)
   Type l -> ("Type " ++) . showsPrec 0 (l - 1)
-  Lift l -> ("Lift " ++) . showsPrec 0 l
+  Lift l -> ("Lift " ++) . showsPrec 0 (l - 1)
   Var n  -> dbiName n ctx
   Top s _ -> (s ++)
   App fun arg -> showApp ctx se fun . (' ':) . showArg ctx (b1,False,i) arg
@@ -213,12 +213,19 @@ showError e = case e of
     "cannot refute non-empty type:\n" ++
     showTerm ctx t 
   SplitNonData _ -> "split non data"
-  ArityMismatch _ _ _ -> " arity mismatch"
+  ArityMismatch loc given expected ->
+    show loc ++
+    "\nconstructor has " ++
+    show expected ++
+    "arguments, but the pattern has " ++
+    show given
   ConstructorMismatch loc hd ctx t ->
     errHeader loc ctx ++
     hd ++ " is not a constructor of type:\n" ++
     showTerm ctx t 
-  NonCoveringSplit _ _ -> "non covering split"
+  NonCoveringSplit _ _ -> 
+    show loc ++
+    "\nclauses do not cover all cases"
   IntroNonFunction -> "intro non function"
   UnevenPatterns -> "uneven patterns"
   

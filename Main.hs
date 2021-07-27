@@ -14,12 +14,10 @@ the atrocious error list:
 - intro non-function
 
 TODO:
-- improve constructor level error messages
 - allow splitting on bottom
 - allow defaulting branches.
   - for non-linear types, this can be done by just replacing the defaulting pattern by
     wildcard patterns
-- experiment with configs all the way through
 - do inference for minimal cic
 - have liftable constants
 - full inference for universes and multiplicities with subtyping
@@ -34,6 +32,11 @@ TODO:
 - patternmatching for minimal cic
 - general splitting on inductive families
 - improve termination checks
+
+qtt notes:
+for smooth interaction between prop and qtt, it might be useful to have
+unerase and linear consume constants. (The latter will require a trivial reduction rule)
+
 
 universe notes:
 - for the sake of elaboration of metavariables, it is useful to have (Prop = Type 0),

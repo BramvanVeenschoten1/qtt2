@@ -40,8 +40,21 @@ showProblem (Problem constrs pats rhs) =
 {-
 considering the distinct advantages of primitive case trees, also consider the challenges in
 making them work. In particular, it is hard to equip them with semantics for
-instantiating variables, deleting variables from contexts, reordering contexts, etcetera.
+instantiating variables, deleting variables from contexts, reordering contexts,
+etcetera.
 -}
+
+liftBottom :: Int -> Term -> Term -> Term
+liftBottom l x a =
+  mkApp (Lift (l' + 1)) [Type l', top, a, App x top_is_a, motive, trivial] where
+    l' = l + 1
+    top = Pi One "" bottom bottom
+    bottom = Pi Zero "" (Type 0) (Var 0)
+    top_is_a =
+      Pi Zero "P" (Pi Many (Type l') (Type 0)) $
+        Pi One "" (App (Var 0) top) (App (Var 1) a)
+    motive = Lam Many "x" (Type l) (Var 0)
+    trivial = Lam One "x" top (Var 0)
 
 {-
 A few things on splitting on bottom:
